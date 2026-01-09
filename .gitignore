@@ -1,2 +1,4 @@
 datasets
-config/api.yaml
+config/api.json
+__pycache__
+.pyc
