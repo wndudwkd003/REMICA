@@ -18,7 +18,9 @@ class Config:
     do_mode: str = "REM_Stage_1"  # REM_Stage_1 | REM_Stage_2 |
 
     model_name: str = "ModernBERT-base"
-    model_id: str = "answerdotai/ModernBERT-base"
+    model_id: str = (
+        "answerdotai/ModernBERT-base"  #  answerdotai/ModernBERT-base | FacebookAI/roberta-base | microsoft/deberta-v3-base | allenai/longformer-base-4096 | google/bigbird-roberta-base
+    )
 
     run_dir: str = "runs"
     train_mode: str = "train_test"  # "train" or "test"

@@ -1,6 +1,5 @@
 # worker/trainer.py
 
-from __future__ import annotations
 
 import gc
 import json
@@ -19,7 +18,7 @@ from transformers import get_linear_schedule_with_warmup
 
 from utils.data_utils import JsonlDataset
 from utils.collate_utils import TextCollator
-from core.modernbert import ModernBERT_MLP
+from core.build_model import build_model
 from utils.viz_utils import plot_cross_grid
 
 
@@ -72,6 +71,7 @@ def run_epoch(
     train: bool,
     optimizer: torch.optim.Optimizer | None = None,
     scheduler=None,
+    model_id: str = "",
     desc: str = "",
 ):
     if train:
@@ -91,7 +91,18 @@ def run_epoch(
             attn = batch["attention_mask"].to(device)
             y = batch["labels"].to(device)
 
-            logits = model(input_ids=input_ids, attention_mask=attn)
+            if "longformer" in (model_id or "").lower():
+                # Longformer: global_attention_mask 필요/권장
+                global_attention_mask = torch.zeros_like(attn)
+                global_attention_mask[:, 0] = 1
+                logits = model(
+                    input_ids=input_ids,
+                    attention_mask=attn,
+                    global_attention_mask=global_attention_mask,
+                )
+            else:
+                logits = model(input_ids=input_ids, attention_mask=attn)
+
             loss = loss_fn(logits, y)
 
             if train:
@@ -146,12 +157,7 @@ def train_model(config: Config, run_dir: Path, train_dataset: str) -> Path:
         collate_fn=collate,
     )
 
-    model = ModernBERT_MLP(
-        model_id=config.model_id,
-        hidden_dim=config.hidden_dim,
-        num_labels=2,
-        trust_remote_code=True,
-    ).to(device)
+    model = build_model(config, hidden_dim=config.hidden_dim, num_labels=2).to(device)
 
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=config.lr, weight_decay=config.weight_decay
@@ -191,6 +197,7 @@ def train_model(config: Config, run_dir: Path, train_dataset: str) -> Path:
             train=True,
             optimizer=optimizer,
             scheduler=scheduler,
+            model_id=config.model_id,
             desc=f"train e{epoch:02d}",
         )
         va = run_epoch(
@@ -199,6 +206,7 @@ def train_model(config: Config, run_dir: Path, train_dataset: str) -> Path:
             device,
             loss_fn,
             train=False,
+            model_id=config.model_id,
             desc=f"valid e{epoch:02d}",
         )
 
@@ -254,12 +262,8 @@ def test_cross(config: Config, ckpt_path: Path, train_dataset: str):
 
     hidden_dim = meta["hidden_dim"]
 
-    model = ModernBERT_MLP(
-        model_id=config.model_id,
-        hidden_dim=hidden_dim,
-        num_labels=2,
-        trust_remote_code=True,
-    )
+    model = build_model(config, hidden_dim=hidden_dim, num_labels=2)
+
     state_dict = torch.load(ckpt_path, map_location="cpu")
     model.load_state_dict(state_dict, strict=True)
     model.to(device)
@@ -292,6 +296,7 @@ def test_cross(config: Config, ckpt_path: Path, train_dataset: str):
             device,
             loss_fn,
             train=False,
+            model_id=config.model_id,
             desc=f"test {test_dataset}",
         )
         out[test_dataset] = m

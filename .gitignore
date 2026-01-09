@@ -2,3 +2,7 @@ datasets
 config/api.json
 __pycache__
 .pyc
+*.pt
+
+meta.json
+
