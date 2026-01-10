@@ -6,10 +6,11 @@ import json
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from pathlib import Path
+import matplotlib.pyplot as plt
 
 from tqdm.auto import tqdm
 
-from config.config import Config
+from config.config import Config, DatasetEnum
 import pandas as pd
 import torch
 import torch.nn as nn
@@ -20,6 +21,7 @@ from utils.data_utils import JsonlDataset
 from utils.collate_utils import TextCollator
 from core.build_model import build_model
 from utils.viz_utils import plot_cross_grid
+from utils.viz_utils import plot_train_valid_curves
 
 
 def get_device() -> torch.device:
@@ -47,14 +49,16 @@ def make_run_dir(config: Config) -> Path:
     (run_dir / "results").mkdir(parents=True, exist_ok=True)
 
     cfg = asdict(config) if is_dataclass(config) else dict(config.__dict__)
+    cfg["dataset_order"] = [(ds.name, bs) for ds, bs in config.dataset_order]
+
     with open(run_dir / "config.json", "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
 
     return run_dir
 
 
-def dataset_paths(config: Config, dataset_name: str):
-    base = Path(config.datasets_dir) / dataset_name
+def dataset_paths(config: Config, dataset: DatasetEnum):
+    base = Path(config.datasets_dir) / dataset.name
     return {
         "train": base / "train.jsonl",
         "valid": base / "valid.jsonl",
@@ -129,7 +133,9 @@ def run_epoch(
     }
 
 
-def train_model(config: Config, run_dir: Path, train_dataset: str) -> Path:
+def train_model(
+    config: Config, run_dir: Path, train_dataset: "DatasetEnum", batch_size: int
+) -> Path:
     device = get_device()
     paths = dataset_paths(config, train_dataset)
 
@@ -144,14 +150,14 @@ def train_model(config: Config, run_dir: Path, train_dataset: str) -> Path:
 
     train_loader = DataLoader(
         train_ds,
-        batch_size=config.batch_size,
+        batch_size=batch_size,
         shuffle=True,
         num_workers=config.num_workers,
         collate_fn=collate,
     )
     valid_loader = DataLoader(
         valid_ds,
-        batch_size=config.batch_size,
+        batch_size=batch_size,
         shuffle=False,
         num_workers=config.num_workers,
         collate_fn=collate,
@@ -169,7 +175,7 @@ def train_model(config: Config, run_dir: Path, train_dataset: str) -> Path:
 
     loss_fn = nn.CrossEntropyLoss()
 
-    save_dir = run_dir / "save" / train_dataset
+    save_dir = run_dir / "save" / train_dataset.name
     save_dir.mkdir(parents=True, exist_ok=True)
     best_path = save_dir / "best.pt"
     meta_path = save_dir / "meta.json"
@@ -178,16 +184,19 @@ def train_model(config: Config, run_dir: Path, train_dataset: str) -> Path:
     best_valid_acc = -1.0
     best_epoch = -1
     bad_count = 0
+    history = []
 
     print(
-        f"\n[TRAIN] dataset={train_dataset} train={len(train_ds)} valid={len(valid_ds)}"
+        f"\n[TRAIN] dataset={train_dataset.name} train={len(train_ds)} valid={len(valid_ds)}"
     )
     print(
         f"[TRAIN] early_stopping: patience={config.early_stopping_patience}, "
         f"delta={config.early_stopping_delta} (monitor=valid_loss)"
     )
 
-    epoch_pbar = tqdm(range(1, config.num_epochs + 1), desc=f"epochs({train_dataset})")
+    epoch_pbar = tqdm(
+        range(1, config.num_epochs + 1), desc=f"epochs({train_dataset.name})"
+    )
     for epoch in epoch_pbar:
         tr = run_epoch(
             model,
@@ -208,6 +217,16 @@ def train_model(config: Config, run_dir: Path, train_dataset: str) -> Path:
             train=False,
             model_id=config.model_id,
             desc=f"valid e{epoch:02d}",
+        )
+
+        history.append(
+            {
+                "epoch": epoch,
+                "tr_loss": tr["loss"],
+                "tr_acc": tr["acc"],
+                "va_loss": va["loss"],
+                "va_acc": va["acc"],
+            }
         )
 
         epoch_pbar.set_postfix(
@@ -235,6 +254,7 @@ def train_model(config: Config, run_dir: Path, train_dataset: str) -> Path:
                 "best_epoch": best_epoch,
                 "best_valid_loss": best_valid_loss,
                 "best_valid_acc": best_valid_acc,
+                "batch_size": batch_size,
             }
             with open(meta_path, "w", encoding="utf-8") as f:
                 json.dump(meta, f, ensure_ascii=False, indent=2)
@@ -242,6 +262,22 @@ def train_model(config: Config, run_dir: Path, train_dataset: str) -> Path:
             bad_count += 1
             if bad_count >= config.early_stopping_patience:
                 break
+
+    history_csv = save_dir / "train_valid_history.csv"
+    pd.DataFrame(history).to_csv(history_csv, index=False)
+
+    plot_train_valid_curves(
+        history_csv=history_csv,
+        out_path=save_dir / "train_valid_loss.png",
+        metric="loss",
+        title=f"Train/Valid Loss ({train_dataset.name})",
+    )
+    plot_train_valid_curves(
+        history_csv=history_csv,
+        out_path=save_dir / "train_valid_acc.png",
+        metric="acc",
+        title=f"Train/Valid Acc ({train_dataset.name})",
+    )
 
     print(
         f"[TRAIN] saved -> {best_path} "
@@ -253,7 +289,7 @@ def train_model(config: Config, run_dir: Path, train_dataset: str) -> Path:
     return best_path
 
 
-def test_cross(config: Config, ckpt_path: Path, train_dataset: str):
+def test_cross(config: Config, ckpt_path: Path, train_dataset: "DatasetEnum"):
     device = get_device()
 
     meta_path = ckpt_path.parent / "meta.json"
@@ -263,7 +299,6 @@ def test_cross(config: Config, ckpt_path: Path, train_dataset: str):
     hidden_dim = meta["hidden_dim"]
 
     model = build_model(config, hidden_dim=hidden_dim, num_labels=2)
-
     state_dict = torch.load(ckpt_path, map_location="cpu")
     model.load_state_dict(state_dict, strict=True)
     model.to(device)
@@ -275,16 +310,15 @@ def test_cross(config: Config, ckpt_path: Path, train_dataset: str):
     )
 
     loss_fn = nn.CrossEntropyLoss()
-
     out = {}
 
-    ds_pbar = tqdm(config.dataset_order, desc=f"cross-test({train_dataset})")
-    for test_dataset in ds_pbar:
+    ds_pbar = tqdm(config.dataset_order, desc=f"cross-test({train_dataset.name})")
+    for test_dataset, bs in ds_pbar:
         paths = dataset_paths(config, test_dataset)
         test_ds = JsonlDataset(str(paths["test"]), meta_to_text=config.meta_to_text)
         test_loader = DataLoader(
             test_ds,
-            batch_size=config.batch_size,
+            batch_size=bs,
             shuffle=False,
             num_workers=config.num_workers,
             collate_fn=collate,
@@ -297,9 +331,10 @@ def test_cross(config: Config, ckpt_path: Path, train_dataset: str):
             loss_fn,
             train=False,
             model_id=config.model_id,
-            desc=f"test {test_dataset}",
+            desc=f"test {test_dataset.name}",
         )
-        out[test_dataset] = m
+
+        out[test_dataset.name] = m
         ds_pbar.set_postfix(acc=f"{m['acc']:.4f}", loss=f"{m['loss']:.4f}")
 
     cleanup_gpu(model)
@@ -312,10 +347,10 @@ def train(config: Config):
     all_results = {}
 
     outer = tqdm(config.dataset_order, desc="train-datasets")
-    for train_dataset in outer:
-        ckpt_path = train_model(config, run_dir, train_dataset)
+    for train_dataset, bs in outer:
+        ckpt_path = train_model(config, run_dir, train_dataset, batch_size=bs)
         cross = test_cross(config, ckpt_path, train_dataset)
-        all_results[train_dataset] = cross
+        all_results[train_dataset.name] = cross
 
         results_dir = run_dir / "results"
         results_dir.mkdir(parents=True, exist_ok=True)
@@ -339,11 +374,13 @@ def train(config: Config):
         csv_path = results_dir / "cross_test.csv"
         pd.DataFrame(rows).to_csv(csv_path, index=False)
 
+        order_names = [ds.name for ds, _ in config.dataset_order]
+
         plot_cross_grid(
             csv_path=csv_path,
             out_path=results_dir / "cross_test_grid_acc.png",
             metric="acc",
-            dataset_order=config.dataset_order,
+            dataset_order=order_names,
             title="Cross-test Accuracy",
             fmt=".3f",
         )
@@ -351,7 +388,7 @@ def train(config: Config):
             csv_path=csv_path,
             out_path=results_dir / "cross_test_grid_loss.png",
             metric="loss",
-            dataset_order=config.dataset_order,
+            dataset_order=order_names,
             title="Cross-test Loss",
             fmt=".3f",
         )
@@ -371,10 +408,10 @@ def test(config: Config):
     all_results = {}
 
     outer = tqdm(config.dataset_order, desc="retest-models")
-    for dataset in outer:
-        ckpt_path = save_root / dataset / "best.pt"
+    for dataset, _ in outer:
+        ckpt_path = save_root / dataset.name / "best.pt"
         cross = test_cross(config, ckpt_path, dataset)
-        all_results[dataset] = cross
+        all_results[dataset.name] = cross
         cleanup_gpu()
 
     results_dir = run_dir / "results"
@@ -399,11 +436,13 @@ def test(config: Config):
     csv_path = results_dir / "cross_test_retest.csv"
     pd.DataFrame(rows).to_csv(csv_path, index=False)
 
+    order_names = [ds.name for ds, _ in config.dataset_order]
+
     plot_cross_grid(
         csv_path=csv_path,
         out_path=results_dir / "cross_test_retest_grid_acc.png",
         metric="acc",
-        dataset_order=config.dataset_order,
+        dataset_order=order_names,
         title="Cross-test Accuracy (Retest)",
         fmt=".3f",
     )
@@ -411,11 +450,10 @@ def test(config: Config):
         csv_path=csv_path,
         out_path=results_dir / "cross_test_retest_grid_loss.png",
         metric="loss",
-        dataset_order=config.dataset_order,
+        dataset_order=order_names,
         title="Cross-test Loss (Retest)",
         fmt=".3f",
     )
 
     print(f"\n[DONE] loaded run_dir={run_dir}")
-
     return run_dir

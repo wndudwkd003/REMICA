@@ -74,3 +74,43 @@ def plot_cross_grid(
     plt.tight_layout()
     plt.savefig(out_path, dpi=200)
     plt.close(fig)
+
+
+def plot_train_valid_curves(
+    history_csv: Path, out_path: Path, metric: str = "loss", title: str = ""
+):
+    """
+    history_csv columns 예:
+      epoch, tr_loss, tr_acc, va_loss, va_acc
+    metric: "loss" | "acc"
+    """
+    df = pd.read_csv(history_csv)
+
+    x = df["epoch"].tolist()
+
+    if metric == "loss":
+        y_tr = df["tr_loss"].tolist()
+        y_va = df["va_loss"].tolist()
+        ylab = "Loss"
+        if not title:
+            title = "Train/Valid Loss"
+    elif metric == "acc":
+        y_tr = df["tr_acc"].tolist()
+        y_va = df["va_acc"].tolist()
+        ylab = "Accuracy"
+        if not title:
+            title = "Train/Valid Accuracy"
+    else:
+        raise ValueError(f"Unknown metric: {metric}")
+
+    plt.figure()
+    plt.plot(x, y_tr, label="train")
+    plt.plot(x, y_va, label="valid")
+    plt.xlabel("Epoch")
+    plt.ylabel(ylab)
+    plt.title(title)
+    plt.legend()
+    plt.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(out_path, dpi=200)
+    plt.close()
