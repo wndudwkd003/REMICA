@@ -2,26 +2,42 @@ import os
 import json
 from pathlib import Path
 import pandas as pd
+
 from sklearn.model_selection import train_test_split
 from scripts.filter_utils import is_only_url_or_symbol
 from collections import Counter
+import random
 
 import matplotlib.pyplot as plt
 
-DATASET_NAME_MAP = {
-    "DiaSafety": "DiaSafety",
-    "gab_hate": "GabHate",
-    "hate-speech-and-offensive-language-master": "HSOL",
-    "hatexplain": "HateXplain",
-    "real-toxicity-prompts": "RealToxicityPrompts",
-}
+from enum import Enum
 
-SELECT_DATA = "real-toxicity-prompts"  # DiaSafety | gab_hate | "hate-speech-and-offensive-language-master" | "hatexplain" | "real-toxicity-prompts"
+
+class DatasetEnum(Enum):
+    DiaSafety = "DiaSafety"
+    GabHate = "gab_hate"
+    HSOL = "hate-speech-and-offensive-language-master"
+    HateXplain = "hatexplain"
+    RealToxicityPrompts = "real-toxicity-prompts"
+    OffenseEval = "offenseval"
+    HSD = "hate-speech-dataset-master"
+    ToxiGen = "toxigen"
+    ToxiSpanSE = "ToxiSpanSE"
+    ToxiCR = "toxicr"
+    HSDCD = "hsdcd"
+    ISHate = "ISHate"
+
+
+SELECT_DATA = DatasetEnum.ISHate
 DATASET_DIR = "datasets"
 DO_MODE = "process_data"  # "check_count" | "process_data"
 SEED = 42
 OUT_DIR = "datasets_processed"
 HATE_LABEL = 1
+
+COUNT_MATCHING = True
+
+
 os.makedirs(OUT_DIR, exist_ok=True)
 
 
@@ -31,6 +47,409 @@ def find_dataset(dataset_name: str):
         if dataset_path.is_dir() and dataset_path.name == dataset_name:
             return dataset_path
     return None
+
+
+def get_ishate(dataset_path: Path, dataset_name: str):
+    results = {"train": [], "valid": [], "test": []}
+
+    base_dir = dataset_path / "decompressed"
+    train_path = base_dir / "ishate_train.csv"
+    valid_path = base_dir / "ishate_dev.csv"
+    test_path = base_dir / "ishate_test.csv"
+
+    train_df = pd.read_csv(train_path, dtype=str)
+    valid_df = pd.read_csv(valid_path, dtype=str)
+    test_df = pd.read_csv(test_path, dtype=str)
+
+    def to_items(df, split_name: str):
+        items = []
+        for i, row in df.iterrows():
+            text = str(row.get("cleaned_text", "")).replace("\n", " ")
+            text = " ".join(text.split())
+            if not text or is_only_url_or_symbol(text):
+                continue
+
+            hateful_layer = str(row.get("hateful_layer", "")).strip()
+            label = 1 if hateful_layer == "HS" else 0
+
+            items.append(
+                {
+                    "id": f"{dataset_name}_{split_name}_{i}",
+                    "text": text,
+                    "label": label,
+                    "metadata": {
+                        "message_id": row.get("message_id", None),
+                        "source": row.get("source", None),
+                        "hateful_layer": row.get("hateful_layer", None),
+                        "implicit_layer": row.get("implicit_layer", None),
+                        "subtlety_layer": row.get("subtlety_layer", None),
+                        "implicit_props_layer": row.get("implicit_props_layer", None),
+                        "target": row.get("target", None),
+                    },
+                }
+            )
+        return items
+
+    results["train"] = to_items(train_df, "train")
+    results["valid"] = to_items(valid_df, "valid")
+    results["test"] = to_items(test_df, "test")
+
+    return results
+
+
+def get_hsdcd(dataset_path: Path, dataset_name: str):
+    results = {"train": [], "valid": [], "test": []}
+
+    csv_path = dataset_path / "archive" / "HateSpeechDatasetBalanced.csv"
+    if csv_path.exists() is False:
+        csv_path = dataset_path / "archive" / "HateSpeechDataset.csv"
+
+    df = pd.read_csv(csv_path)
+
+    df["text"] = df["Content"].astype(str)
+    df["label"] = df["Label"].astype(int)
+
+    df = df[~df["text"].apply(is_only_url_or_symbol)]
+
+    train_df, tmp_df = train_test_split(
+        df, test_size=0.2, random_state=SEED, stratify=df["label"]
+    )
+    valid_df, test_df = train_test_split(
+        tmp_df, test_size=0.5, random_state=SEED, stratify=tmp_df["label"]
+    )
+
+    def to_items(df_split, split_name: str):
+        items = []
+        for idx, row in df_split.iterrows():
+            text = str(row["text"]).replace("\n", " ")
+            text = " ".join(text.split())
+            items.append(
+                {
+                    "id": f"{dataset_name}_{split_name}_{idx}",
+                    "text": text,
+                    "label": int(row["label"]),
+                    "metadata": {},
+                }
+            )
+        return items
+
+    results["train"] = to_items(train_df, "train")
+    results["valid"] = to_items(valid_df, "valid")
+    results["test"] = to_items(test_df, "test")
+
+    return results
+
+
+def get_toxicr(dataset_path: Path, dataset_name: str):
+    results = {"train": [], "valid": [], "test": []}
+
+    xlsx_path = dataset_path / "toxicr.xlsx"
+    df = pd.read_excel(xlsx_path)
+
+    label_col = [c for c in df.columns if str(c).lower().startswith("is_to")][0]
+
+    df["text"] = df["message"].astype(str)
+    df["label"] = df[label_col].astype(int)
+
+    df = df[~df["text"].apply(is_only_url_or_symbol)]
+
+    train_df, tmp_df = train_test_split(
+        df, test_size=0.2, random_state=SEED, stratify=df["label"]
+    )
+    valid_df, test_df = train_test_split(
+        tmp_df, test_size=0.5, random_state=SEED, stratify=tmp_df["label"]
+    )
+
+    def to_items(df_split, split_name: str):
+        items = []
+        for idx, row in df_split.iterrows():
+            text = str(row["text"]).replace("\n", " ")
+            text = " ".join(text.split())
+            items.append(
+                {
+                    "id": f"{dataset_name}_{split_name}_{idx}",
+                    "text": text,
+                    "label": int(row["label"]),
+                    "metadata": {},
+                }
+            )
+        return items
+
+    results["train"] = to_items(train_df, "train")
+    results["valid"] = to_items(valid_df, "valid")
+    results["test"] = to_items(test_df, "test")
+
+    return results
+
+
+def get_toxispanse(dataset_path: Path, dataset_name: str):
+    results = {"train": [], "valid": [], "test": []}
+
+    csv_path = dataset_path / "CR_full_span_dataset.csv"
+    df = pd.read_csv(csv_path)
+
+    df["is_toxic"] = df["is_toxic"].fillna(0)
+    df["label"] = df["is_toxic"].astype(int)
+
+    df["text"] = df["text"].astype(str)
+    df = df[~df["text"].apply(is_only_url_or_symbol)]
+
+    train_df, tmp_df = train_test_split(
+        df, test_size=0.2, random_state=SEED, stratify=df["label"]
+    )
+    valid_df, test_df = train_test_split(
+        tmp_df, test_size=0.5, random_state=SEED, stratify=tmp_df["label"]
+    )
+
+    def extract_span_words(row):
+        s = row.get("final_selected_text", "")
+        s = "" if pd.isna(s) else str(s)
+        s = s.replace("\n", " ").strip()
+
+        if not s:
+            a = row.get("rater1_text", "")
+            b = row.get("rater2_text", "")
+            a = "" if pd.isna(a) else str(a)
+            b = "" if pd.isna(b) else str(b)
+            s = ",".join([x for x in [a.strip(), b.strip()] if x])
+
+        s = " ".join(s.split())
+        if not s:
+            return []
+
+        raw = s.replace("/", " ").replace("-", " ").replace("_", " ")
+        raw = raw.translate(str.maketrans({c: " " for c in "[]{}()\"'.,;:!?,"}))
+        toks = [t.strip() for t in raw.split() if t.strip()]
+
+        seen = set()
+        uniq = []
+        for t in toks:
+            if t in seen:
+                continue
+            seen.add(t)
+            uniq.append(t)
+        return uniq
+
+    def to_items(df_split, split_name: str):
+        items = []
+        for _, row in df_split.iterrows():
+            text = str(row["text"]).replace("\n", " ")
+            text = " ".join(text.split())
+
+            items.append(
+                {
+                    "id": f"{dataset_name}_{split_name}_{row['id']}",
+                    "text": text,
+                    "label": int(row["label"]),
+                    "metadata": {
+                        "spans": extract_span_words(row),
+                        "is_conflict": row.get("is_conflict", None),
+                        "final_selected_text": row.get("final_selected_text", None),
+                        "rater1_text": row.get("rater1_text", None),
+                        "rater2_text": row.get("rater2_text", None),
+                    },
+                }
+            )
+        return items
+
+    results["train"] = to_items(train_df, "train")
+    results["valid"] = to_items(valid_df, "valid")
+    results["test"] = to_items(test_df, "test")
+
+    return results
+
+
+def get_toxigen_annotated_only(dataset_path: Path, dataset_name: str):
+    results = {"train": [], "valid": [], "test": []}
+
+    train_path = dataset_path / "annotated" / "train.jsonl"
+    test_path = dataset_path / "annotated" / "test.jsonl"
+
+    def read_jsonl(p: Path):
+        rows = []
+        with open(p, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                rows.append(json.loads(line))
+        return rows
+
+    train_rows = read_jsonl(train_path)
+    test_rows = read_jsonl(test_path)
+
+    def to_items(rows, split_name: str):
+        items = []
+        for i, r in enumerate(rows):
+            text = str(r.get("text", "")).replace("\n", " ")
+            text = " ".join(text.split())
+            if not text or is_only_url_or_symbol(text):
+                continue
+
+            y = r["toxicity_human"]
+            label = int(y >= 3.0)
+
+            items.append(
+                {
+                    "id": f"{dataset_name}_{split_name}_{i}",
+                    "text": text,
+                    "label": label,
+                    "metadata": {
+                        "target_group": r.get("target_group", None),
+                        "factual": r.get("factual?", None),
+                        "ingroup_effect": r.get("ingroup_effect", None),
+                        "lewd": r.get("lewd", None),
+                        "framing": r.get("framing", None),
+                        "predicted_group": r.get("predicted_group", None),
+                        "stereotyping": r.get("stereotyping", None),
+                        "intent": r.get("intent", None),
+                        "toxicity_ai": r.get("toxicity_ai", None),
+                        "toxicity_human": r.get("toxicity_human", None),
+                        "predicted_author": r.get("predicted_author", None),
+                        "actual_method": r.get("actual_method", None),
+                    },
+                }
+            )
+        return items
+
+    all_train_items = to_items(train_rows, "train_full")
+    tr_items, va_items = train_test_split(
+        all_train_items,
+        test_size=0.2,
+        random_state=SEED,
+        stratify=[x["label"] for x in all_train_items],
+    )
+
+    results["train"] = [
+        {
+            **it,
+            "id": it["id"].replace(
+                f"{dataset_name}_train_full_", f"{dataset_name}_train_"
+            ),
+        }
+        for it in tr_items
+    ]
+    results["valid"] = [
+        {
+            **it,
+            "id": it["id"].replace(
+                f"{dataset_name}_train_full_", f"{dataset_name}_valid_"
+            ),
+        }
+        for it in va_items
+    ]
+    results["test"] = to_items(test_rows, "test")
+
+    return results
+
+
+def get_hate_speech_dataset_master(dataset_path: Path, dataset_name: str):
+    results = {"train": [], "valid": [], "test": []}
+
+    meta_path = dataset_path / "raw" / "annotations_metadata.csv"
+    df = pd.read_csv(meta_path, dtype=str)
+
+    df["label"] = df["label"].astype(str)
+    df["label_bin"] = (df["label"] == "hate").astype(int)
+
+    train_dir = dataset_path / "raw" / "sampled_train"
+    test_dir = dataset_path / "raw" / "sampled_test"
+
+    train_ids = {p.stem for p in train_dir.glob("*.txt")}
+    test_ids = {p.stem for p in test_dir.glob("*.txt")}
+
+    train_df = df[df["file_id"].isin(train_ids)].copy()
+    test_df = df[df["file_id"].isin(test_ids)].copy()
+
+    tr_df, va_df = train_test_split(
+        train_df,
+        test_size=0.2,
+        random_state=SEED,
+        stratify=train_df["label_bin"],
+    )
+
+    def to_items(df_split, split_name, base_dir: Path):
+        items = []
+        for _, row in df_split.iterrows():
+            file_id = row["file_id"]
+            text = (base_dir / f"{file_id}.txt").read_text(encoding="utf-8")
+            text = " ".join(text.replace("\n", " ").split())
+            if is_only_url_or_symbol(text):
+                continue
+            items.append(
+                {
+                    "id": f"{dataset_name}_{split_name}_{file_id}",
+                    "text": text,
+                    "label": int(row["label_bin"]),
+                    "metadata": {},
+                }
+            )
+        return items
+
+    results["train"] = to_items(tr_df, "train", train_dir)
+    results["valid"] = to_items(va_df, "valid", train_dir)
+    results["test"] = to_items(test_df, "test", test_dir)
+
+    return results
+
+
+def get_offenseval(dataset_path: Path, dataset_name: str):
+    results = {"train": [], "valid": [], "test": []}
+
+    train_path = dataset_path / "raw" / "data" / "olid-training-v1.0.tsv"
+    train_df = pd.read_csv(train_path, sep="\t", dtype=str)
+
+    train_df["text"] = train_df["tweet"].astype(str)
+    train_df = train_df[~train_df["text"].apply(is_only_url_or_symbol)]
+    train_df["label"] = (train_df["subtask_a"] == "OFF").astype(int)
+
+    tr_df, va_df = train_test_split(
+        train_df,
+        test_size=0.2,
+        random_state=SEED,
+        stratify=train_df["label"],
+    )
+
+    def to_items(df_split, split_name):
+        items = []
+        for _, row in df_split.iterrows():
+            items.append(
+                {
+                    "id": f"{dataset_name}_{split_name}_{row['id']}",
+                    "text": row["text"],
+                    "label": int(row["label"]),
+                    "metadata": {},
+                }
+            )
+        return items
+
+    results["train"] = to_items(tr_df, "train")
+    results["valid"] = to_items(va_df, "valid")
+
+    test_path = dataset_path / "raw" / "data" / "testset-levela.tsv"
+    test_labels_path = dataset_path / "raw" / "data" / "labels-levela.csv"
+
+    test_df = pd.read_csv(test_path, sep="\t", dtype=str)
+    test_df["text"] = test_df["tweet"].astype(str)
+    test_df = test_df[~test_df["text"].apply(is_only_url_or_symbol)]
+
+    labels_df = pd.read_csv(
+        test_labels_path, header=None, names=["id", "subtask_a"], dtype=str
+    )
+    merged = test_df.merge(labels_df, on="id", how="inner")
+    merged["label"] = (merged["subtask_a"] == "OFF").astype(int)
+
+    results["test"] = [
+        {
+            "id": f"{dataset_name}_test_{row['id']}",
+            "text": row["text"],
+            "label": int(row["label"]),
+            "metadata": {},
+        }
+        for _, row in merged.iterrows()
+    ]
+
+    return results
 
 
 def get_real_toxicity_prompts(
@@ -326,12 +745,50 @@ def save_jsonl(data, output_path: Path):
 
 
 DATASET_REGISTRY = {
-    "DiaSafety": get_diasafety,
-    "gab_hate": get_gabhate,
-    "hate-speech-and-offensive-language-master": get_hsol,
-    "hatexplain": get_hatexplain,
-    "real-toxicity-prompts": get_real_toxicity_prompts,
+    DatasetEnum.DiaSafety: get_diasafety,
+    DatasetEnum.GabHate: get_gabhate,
+    DatasetEnum.HSOL: get_hsol,
+    DatasetEnum.HateXplain: get_hatexplain,
+    DatasetEnum.RealToxicityPrompts: get_real_toxicity_prompts,
+    DatasetEnum.OffenseEval: get_offenseval,
+    DatasetEnum.HSD: get_hate_speech_dataset_master,
+    DatasetEnum.ToxiGen: get_toxigen_annotated_only,
+    DatasetEnum.ToxiSpanSE: get_toxispanse,
+    DatasetEnum.ToxiCR: get_toxicr,
+    DatasetEnum.HSDCD: get_hsdcd,
+    DatasetEnum.ISHate: get_ishate,
 }
+
+
+def match_label_counts(results, seed: int):
+    rng = random.Random(seed)
+    out = {"train": [], "valid": [], "test": []}
+
+    for split in ["train", "valid", "test"]:
+        items = list(results[split])
+        labels = [it["label"] for it in items]
+        cnt = Counter(labels)
+
+        if len(cnt) < 2:
+            out[split] = items
+            continue
+
+        n0 = cnt[0]
+        n1 = cnt[1]
+        target = min(n0, n1)
+
+        zeros = [it for it in items if it["label"] == 0]
+        ones = [it for it in items if it["label"] == 1]
+
+        rng.shuffle(zeros)
+        rng.shuffle(ones)
+
+        kept = zeros[:target] + ones[:target]
+        rng.shuffle(kept)
+
+        out[split] = kept
+
+    return out
 
 
 def do_check_count(results):
@@ -339,34 +796,40 @@ def do_check_count(results):
     for split in ["train", "valid", "test"]:
         print(f"{split}: {len(results[split])} samples")
 
+    if COUNT_MATCHING:
+        results = match_label_counts(results, seed=SEED)
+        for split in ["train", "valid", "test"]:
+            print(f"[After Count Matching] {split}: {len(results[split])} samples")
+
 
 def do_process_data(results, output_path: Path):
     print(f"DO_MODE: {DO_MODE} (Saving processed JSONL files)")
+
+    if COUNT_MATCHING:
+        results = match_label_counts(results, seed=SEED)
+
     output_path.mkdir(parents=True, exist_ok=True)
     save_jsonl(results, output_path)
     print(f"Saved processed data to: {output_path}")
 
-    # 라벨 분포 그래프 저장
-    output_path = Path(OUT_DIR) / DATASET_NAME_MAP[SELECT_DATA]
+    output_path = Path(OUT_DIR) / SELECT_DATA.name
     draw_label_distribution(results, output_path)
 
 
 if __name__ == "__main__":
-    dataset_path = find_dataset(SELECT_DATA)
+    dataset_path = find_dataset(SELECT_DATA.value)
     if dataset_path is None:
-        print(
-            f"Dataset '{DATASET_NAME_MAP[SELECT_DATA]}' not found under {DATASET_DIR}"
-        )
+        print(f"Dataset '{SELECT_DATA.value}' not found under {DATASET_DIR}")
         exit(1)
 
-    print(f"Loading {DATASET_NAME_MAP[SELECT_DATA]} dataset from: {dataset_path}")
-    results = DATASET_REGISTRY[SELECT_DATA](dataset_path, DATASET_NAME_MAP[SELECT_DATA])
+    print(f"Loading {SELECT_DATA.name} dataset from: {dataset_path}")
+    results = DATASET_REGISTRY[SELECT_DATA](dataset_path, SELECT_DATA.name)
 
     if DO_MODE == "check_count":
         do_check_count(results)
 
     elif DO_MODE == "process_data":
-        do_process_data(results, Path(OUT_DIR) / DATASET_NAME_MAP[SELECT_DATA])
+        do_process_data(results, Path(OUT_DIR) / SELECT_DATA.name)
 
     else:
         print(f"Unknown DO_MODE: {DO_MODE}")

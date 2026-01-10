@@ -12,26 +12,26 @@ def main(config: Config):
         print("Training started...")
 
         run_dir = train(config)
-        print(f"[DONE] train run_dir={run_dir}")
+        print(f"[DONE] train run_dir: {run_dir}")
 
     elif config.train_mode == "train_test":
         print("Training started...")
 
         run_dir = train(config)
-        print(f"[DONE] train run_dir={run_dir}")
+        print(f"[DONE] train run_dir: {run_dir}")
 
         print("Testing started...")
 
         config.load_run_dir = run_dir
 
         run_dir = test(config)
-        print(f"[DONE] test run_dir={run_dir}")
+        print(f"[DONE] test run_dir: {run_dir}")
 
     else:
         print("Test started...")
 
         run_dir = test(config)
-        print(f"[DONE] test run_dir={run_dir}")
+        print(f"[DONE] test run_dir: {run_dir}")
 
 
 if __name__ == "__main__":

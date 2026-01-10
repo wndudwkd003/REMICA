@@ -6,3 +6,5 @@ __pycache__
 
 meta.json
 
+datasets_processed
+*.csv
