@@ -25,31 +25,34 @@ class ModelEnum(Enum):
     BigBird = "google/bigbird-roberta-base"
 
 
+FAST_NOT_MODEL = [ModelEnum.DeBERTaV3.value]
+
+
 @dataclass
 class Config:
     datasets_dir: str = "datasets_processed"
 
     dataset_order: list[tuple[DatasetEnum, int]] = field(
         default_factory=lambda: [
-            (DatasetEnum.DiaSafety, 32),
-            (DatasetEnum.GabHate, 32),
-            (DatasetEnum.HateXplain, 32),
-            (DatasetEnum.HSOL, 32),
-            (DatasetEnum.RealToxicityPrompts, 32),
-            (DatasetEnum.OffenseEval, 32),
-            (DatasetEnum.HSD, 32),
-            (DatasetEnum.ToxiGen, 32),
-            (DatasetEnum.ToxiSpanSE, 4),
-            (DatasetEnum.ToxiCR, 16),
-            (DatasetEnum.HSDCD, 16),
-            (DatasetEnum.ISHate, 16),
+            (DatasetEnum.DiaSafety, 4),
+            (DatasetEnum.GabHate, 4),
+            (DatasetEnum.HateXplain, 2),
+            (DatasetEnum.HSOL, 2),
+            (DatasetEnum.RealToxicityPrompts, 2),
+            (DatasetEnum.OffenseEval, 2),
+            (DatasetEnum.HSD, 2),
+            (DatasetEnum.ToxiGen, 2),
+            (DatasetEnum.ToxiSpanSE, 2),
+            (DatasetEnum.ToxiCR, 2),
+            (DatasetEnum.HSDCD, 2),
+            (DatasetEnum.ISHate, 2),
         ]
     )
 
     do_mode: str = "REM_Stage_1"  # REM_Stage_1 | REM_Stage_2 |
 
-    model_name: str = ModelEnum.ModernBERT.name
-    model_id: str = ModelEnum.ModernBERT.value
+    model_name: str = ModelEnum.DeBERTaV3.name
+    model_id: str = ModelEnum.DeBERTaV3.value
 
     run_dir: str = "runs"
     train_mode: str = "train_test"  # "train" or "test"
@@ -66,5 +69,5 @@ class Config:
     meta_to_text: bool = False
     hidden_dim: int = 512
 
-    early_stopping_patience: int = 30
+    early_stopping_patience: int = 5
     early_stopping_delta: float = 0.001

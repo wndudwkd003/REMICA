@@ -1,28 +1,33 @@
-# utils/collate_utils.py
-
-
 import torch
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, DebertaV2Tokenizer
+from config.config import FAST_NOT_MODEL
 
 
 class TextCollator:
-    def __init__(self, model_id: str, max_len: int, trust_remote_code: bool = True):
-        self.tok = AutoTokenizer.from_pretrained(
-            model_id,
-            use_fast=True,
-            trust_remote_code=trust_remote_code,
-        )
+    def __init__(self, model_id: str, max_len: int, trust_remote_code: bool):
+        if model_id in FAST_NOT_MODEL:
+            self.tok = DebertaV2Tokenizer.from_pretrained(model_id)
+        else:
+            self.tok = AutoTokenizer.from_pretrained(
+                model_id,
+                use_fast=True,
+                trust_remote_code=True,
+            )
         self.max_len = max_len
 
     def __call__(self, batch):
-        # batch: (sid, text, label, metadata)
         sids, texts, labels, metas = zip(*batch)
+
+        model_max = int(getattr(self.tok, "model_max_length", self.max_len))
+        if model_max > 1000000:
+            model_max = self.max_len
+        max_len = int(min(self.max_len, model_max))
 
         enc = self.tok(
             list(texts),
             padding=True,
             truncation=True,
-            max_length=self.max_len,
+            max_length=max_len,
             return_tensors="pt",
         )
 

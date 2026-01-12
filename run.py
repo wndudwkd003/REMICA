@@ -7,6 +7,7 @@ from worker.trainer import train, test
 
 
 def main(config: Config):
+    print(f"Current Model: {config.model_name} ({config.model_id})")
 
     if config.train_mode == "train":
         print("Training started...")

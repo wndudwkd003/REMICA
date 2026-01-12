@@ -8,3 +8,5 @@ meta.json
 
 datasets_processed
 *.csv
+*.png
+runs
