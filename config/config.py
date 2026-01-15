@@ -17,6 +17,15 @@ class DatasetEnum(Enum):
     ISHate = "ISHate"
 
 
+REM_STEP_1_DATASET = [
+    DatasetEnum.HSOL,
+    DatasetEnum.HateXplain,
+    DatasetEnum.DiaSafety,
+    DatasetEnum.ToxiSpanSE,
+    DatasetEnum.HSD,
+]
+
+
 class ModelEnum(Enum):
     ModernBERT = "answerdotai/ModernBERT-base"
     RoBERTa = "FacebookAI/roberta-base"
@@ -26,6 +35,10 @@ class ModelEnum(Enum):
 
 
 FAST_NOT_MODEL = [ModelEnum.DeBERTaV3.value]
+
+
+# Select the model to use for experiments!!!!!!!!!!!!!!!!
+SELECT_MODEL = ModelEnum.Longformer
 
 
 @dataclass
@@ -50,9 +63,21 @@ class Config:
     )
 
     do_mode: str = "REM_Stage_1"  # REM_Stage_1 | REM_Stage_2 |
+    api_json_path: str = "config/api.json"
+    rem_step1_datasets: list[DatasetEnum] = field(
+        default_factory=lambda: REM_STEP_1_DATASET
+    )
+    rem_split: str = "train"
+    rem_dir: str = "rem"
 
-    model_name: str = ModelEnum.DeBERTaV3.name
-    model_id: str = ModelEnum.DeBERTaV3.value
+    # GPT 관련
+    gpt_model: str = "gpt-5-mini-2025-08-07"
+    gpt_temperature: float = 0.0
+    gpt_max_output_tokens: int = 256
+    gpt_concurrency: int = 8
+
+    model_name: str = SELECT_MODEL.name
+    model_id: str = SELECT_MODEL.value
 
     run_dir: str = "runs"
     train_mode: str = "train_test"  # "train" or "test"
@@ -71,3 +96,8 @@ class Config:
 
     early_stopping_patience: int = 5
     early_stopping_delta: float = 0.001
+
+    sim_k: int = 4
+    emb_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    emb_batch_size: int = 128
+    sim_index_dir: str = "runs/sim_index"
