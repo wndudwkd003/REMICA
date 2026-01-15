@@ -73,8 +73,9 @@ class Config:
     # GPT 관련
     gpt_model: str = "gpt-5-mini-2025-08-07"
     gpt_temperature: float = 0.0
-    gpt_max_output_tokens: int = 256
+    gpt_max_output_tokens: int = 512
     gpt_concurrency: int = 8
+    max_retries: int = 5
 
     model_name: str = SELECT_MODEL.name
     model_id: str = SELECT_MODEL.value
@@ -97,7 +98,7 @@ class Config:
     early_stopping_patience: int = 5
     early_stopping_delta: float = 0.001
 
-    sim_k: int = 4
+    sim_k: int = 3
     emb_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     emb_batch_size: int = 128
-    sim_index_dir: str = "runs/sim_index"
+    sim_index_dir: str = "sim_index"

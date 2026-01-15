@@ -3,6 +3,8 @@ from utils.seeds_utils import set_seeds
 from config.config import Config
 from worker.trainer import train, test
 from worker.rem_stag1 import run_rem_stage1
+
+from worker.rem_stag2 import run_rem_stage2
 import json
 import os
 
@@ -25,6 +27,10 @@ def main(config: Config):
     if config.do_mode == "REM_Stage_1":
         out_db = run_rem_stage1(config)
         print(f"[DONE] REM Stage1 db: {out_db}")
+        return
+    elif config.do_mode == "REM_Stage_2":
+        out_db = run_rem_stage2(config)
+        print(f"[DONE] REM Stage2 db: {out_db}")
         return
 
     if config.train_mode == "train":

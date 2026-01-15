@@ -10,3 +10,6 @@ datasets_processed
 *.csv
 *.png
 runs
+*.faiss
+sim_index
+rem
