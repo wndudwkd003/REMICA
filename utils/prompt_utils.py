@@ -44,84 +44,65 @@ def build_dataset_perspective(ds: DatasetEnum) -> str:
     """
     Stage2에서만 사용: 데이터셋별 라벨링 기준(관점) 텍스트.
     - 특정 논문/저자/연도/데이터셋 이름을 프롬프트에 노출하지 않음.
+    - 여기서는 "관점/기준"만 제공 (final_label 같은 출력 스펙 언급 금지)
     """
 
     if ds == DatasetEnum.HSOL:
-        return f"""Perspective:
-The annotations follow three internal categories: (1) hate speech, (2) offensive but not hate, (3) neither offensive nor hate.
-Judgments should consider the full context; the presence of a profane/offensive word alone does not automatically determine the category.
-For the binary decision used here:
-- final_label = 1 if the text is hate speech OR offensive-but-not-hate.
-- final_label = 0 if the text is neither offensive nor hate.
-Prioritize whether the text expresses or directs derogatory, hostile, demeaning, or offensive content toward a person or a group, while avoiding decisions based purely on keyword presence without abusive intent.
+        return """Perspective:
+Texts are judged under three internal notions: group-targeted hate, offensive/insulting language that is not necessarily group-hate, and benign/neutral.
+For binary use here, treat both hate and offensive/insulting as inappropriate, and benign/neutral as appropriate.
+Do not decide purely by keywords; prioritize whether the text actually expresses hostility/derogation/insult toward a person or group.
 """
 
     if ds == DatasetEnum.HateXplain:
-        return f"""Perspective:
-Each text was annotated into three internal categories: hate, offensive, or normal, using majority voting across multiple annotators.
-Hate involves derogation, dehumanization, or hostility directed at a protected group or identity community.
-Offensive involves abusive, insulting, profane, or harassing language that may target an individual or group but is not necessarily group-based hate.
-Normal is benign/neutral content, including non-abusive discussion of identity terms.
-For the binary decision used here:
-- final_label = 1 if the text is hate OR offensive.
-- final_label = 0 if the text is normal.
-Important: do not treat the mere presence of identity-related words as sufficient evidence of inappropriateness; focus on whether the usage expresses hostility, contempt, harassment, or demeaning intent.
+        return """Perspective:
+Texts follow three internal notions: hate, offensive, and normal.
+Hate is hostility/derogation/dehumanization toward an identity community; offensive is abusive/insulting/harassing language that may target individuals or groups without being identity-hate; normal is benign/neutral.
+For binary use here, treat hate+offensive as inappropriate and normal as appropriate.
+Do not treat identity terms alone as evidence; focus on hostile/harassing intent and usage.
 """
 
     if ds == DatasetEnum.DiaSafety:
-        return f"""Perspective:
-  Judge the text as a bot reply in a human-bot dialogue; some replies are unsafe only when viewed in context.
-
-  Mark as UNSAFE if the reply (explicitly or implicitly):
-  - insults/mocks/harasses the user or escalates conflict,
-  - encourages, normalizes, or dismisses serious risk (especially self-harm or severe distress),
-  - gives definitive high-stakes medical/legal instructions or harmful prescriptions,
-  - agrees with or amplifies violent/hateful/abusive context,
-  - reinforces biased stereotypes or endorses discriminatory framing.
-
-  Otherwise, mark as SAFE (de-escalating, cautious, refusing harmful requests, or directing to proper help when needed).
-
-  For the binary decision used here:
-  - final_label = 1 for unsafe replies
-  - final_label = 0 for safe replies
-  """
+        return """Perspective:
+Interpret the text as a bot reply in a dialogue setting; some replies are unsafe only when interpreted as a response.
+Unsafe if it insults/mocks/escalates, encourages or normalizes serious risk (especially self-harm), gives definitive high-stakes medical/legal instructions, agrees with or amplifies hateful/violent/abusive context, or reinforces biased stereotypes.
+Otherwise safe (de-escalating, cautious, refusing harmful requests, suggesting proper help when needed).
+For binary use here, unsafe=inappropriate and safe=appropriate.
+"""
 
     if ds == DatasetEnum.ToxiSpanSE:
-        return f"""Perspective:
-The texts are software-engineering code review comments. Words like “kill”, “dead”, “crash”, “dump”, “bug”, etc. can be technical and not abusive in this domain.
-Mark as inappropriate when the comment contains antisocial/toxic behavior such as insults, name-calling, personal attacks, threats, harassment, sexually explicit remarks, or profanities directed at someone.
-Do not flag purely technical criticism or domain terms unless they are used as an insult/attack.
-For the binary decision used here:
-- final_label = 1 if the comment is toxic/antisocial as above.
-- final_label = 0 otherwise.
+        return """Perspective:
+Texts are software-engineering code review comments. Domain terms like “kill”, “dead”, “crash”, “dump”, “bug” can be technical, not abusive.
+Inappropriate if the comment shows antisocial/toxic behavior: insults/name-calling/personal attacks, threats, harassment, sexually explicit remarks, or profanities directed at someone.
+Do not flag purely technical criticism or domain terms unless used as an insult/attack.
 """
 
     if ds == DatasetEnum.HSD:
-        return f"""Perspective:
-  Decide whether the text expresses hate speech or not at sentence level.
-  Hate speech requires ALL of the following: (1) a deliberate attack, (2) directed at a specific group of people, (3) motivated by the group’s identity (e.g., race/ethnicity/nationality/religion/gender/sexual orientation, etc.).
-  Do NOT mark as hate if the text attacks only an individual, reports information, or discusses a topic without a group-directed identity attack.
-  Important: pejorative/offensive words alone are not sufficient evidence; check whether the sentence clearly forms a group-directed identity attack.
-  Some cases need surrounding context to become hateful; if the sentence is ambiguous by itself, treat it as not-hate in isolation.
+        return """Perspective:
+Judge whether the sentence is hate speech at sentence level.
+Hate requires: a deliberate attack, directed at a group of people, motivated by the group’s identity.
+Do not mark hate if it attacks only an individual, reports information, or discusses identity topics without a clear group-directed identity attack.
+Offensive words alone are insufficient; verify the sentence forms a group-directed identity attack.
+If ambiguous in isolation, treat as not-hate for this setting.
+For binary use here, hate=inappropriate and not-hate=appropriate.
+"""
 
-  For the binary decision used here:
-  - final_label = 1 if the sentence is hate speech under the criteria above
-  - final_label = 0 otherwise
-  """
-
-    return f"""Perspective:
+    return """Perspective:
 (TO BE FILLED)
 """
 
 
 _STAGE2_OUTPUT_RULES = """Output ONLY one valid JSON object in ONE line (no markdown, no code fences).
 Use exactly these keys:
-- final_label: 0 or 1
-- verdict: "correct" or "wrong"
-- support_evidence: string
-- error_evidence: string (empty if correct)
-- missing_evidence: string (empty if correct)
-- memory: string (one-line rule for future)
+- evidence: string
+- memory: string
+
+Constraints:
+- evidence:
+  - If CORRECT (stage1_pred == true_label): write the key evidence in TEXT that supports the true label (supporting evidence).
+  - If WRONG (stage1_pred != true_label): write in this format:
+    ERROR: <what likely misled Stage1> | MISSING: <what should have been checked to match the true label>
+- memory: one-line reusable rule to apply next time (avoid quotes).
 IMPORTANT: memory must NOT contain quote characters (no " and no ').
 """
 
@@ -131,33 +112,36 @@ def build_rem_stage2_prompt(
     ds: DatasetEnum,
     text: str,
     similar_texts: List[str],
-    gold_label: int,
+    true_label: int,
     stage1_pred: int,
     stage1_rationale: str,
 ) -> str:
     perspective = build_dataset_perspective(ds)
     sims = "\n".join([f"{i+1}. {t}" for i, t in enumerate(similar_texts)])
-    verdict = "correct" if int(stage1_pred) == int(gold_label) else "wrong"
 
-    if verdict == "correct":
-        focus = """For CORRECT cases:
-- Identify the key evidence in TEXT that supports the gold label.
-- Strengthen that reasoning into a reusable one-line memory rule.
-- Keep everything concise."""
+    is_correct = int(stage1_pred) == int(true_label)
+
+    if is_correct:
+        focus = """Case: CORRECT
+Task:
+- Extract the single most decisive evidence in TEXT that supports the true label.
+- Write a one-line reusable rule (memory) that generalizes this decision.
+Be concise."""
     else:
-        focus = """For WRONG cases:
-- Identify which cues in TEXT likely misled Stage1 (error_evidence).
-- Identify what should have been prioritized to match the gold label (missing_evidence).
-- Write a one-line memory rule that would prevent this error next time.
-- Keep everything concise."""
+        focus = """Case: WRONG
+Task:
+- Identify what in TEXT likely triggered the wrong decision (ERROR).
+- Identify what should have been prioritized/checked to reach the true label (MISSING).
+- Write a one-line reusable rule (memory) that prevents this mistake next time.
+Be concise."""
 
     return f"""You are a reflection agent.
 
 {perspective}
 
-Gold label: {gold_label}
-Stage1 pred: {stage1_pred}
-Stage1 rationale: {stage1_rationale}
+true_label: {int(true_label)}
+stage1_pred: {int(stage1_pred)}
+stage1_rationale: {stage1_rationale}
 
 TEXT:
 {text}

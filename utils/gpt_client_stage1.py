@@ -15,6 +15,25 @@ class RemStage1Out(BaseModel):
     rationale: str
 
 
+def _extract_json_obj(raw: str) -> str:
+    raw = (raw or "").strip()
+    if not raw:
+        raise ValueError("empty_output_text")
+
+    # 코드펜스 제거
+    if raw.startswith("```"):
+        raw = raw.strip("`").strip()
+        if raw.lower().startswith("json"):
+            raw = raw[4:].strip()
+
+    # 앞뒤 잡텍스트가 섞여도 JSON 객체만 슬라이스
+    l = raw.find("{")
+    r = raw.rfind("}")
+    if l == -1 or r == -1 or r <= l:
+        raise ValueError(f"no_json_object: {raw[:120]}")
+    return raw[l : r + 1]
+
+
 class GPTClient:
     def __init__(
         self,
@@ -43,24 +62,16 @@ class GPTClient:
         return out.model_dump()
 
     def _call_raw_and_parse(self, prompt: str) -> Dict[str, Any]:
-        # Raw create -> output_text -> json.loads
         resp = self.client.responses.create(
             model=self.model,
             input=[{"role": "user", "content": prompt}],
             max_output_tokens=self.max_output_tokens,
         )
-        raw_text = (getattr(resp, "output_text", None) or "").strip()
-        if not raw_text:
-            # fallback: stringify
-            raw_text = str(resp).strip()
 
-        # 코드펜스 제거(혹시라도)
-        if raw_text.startswith("```"):
-            raw_text = raw_text.strip("`").strip()
-            if raw_text.lower().startswith("json"):
-                raw_text = raw_text[4:].strip()
+        raw_text = getattr(resp, "output_text", None) or ""
+        json_str = _extract_json_obj(raw_text)
 
-        data = json.loads(raw_text)
+        data = json.loads(json_str)
         checked = RemStage1Out.model_validate(data)
         return checked.model_dump()
 

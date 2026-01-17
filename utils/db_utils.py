@@ -39,12 +39,10 @@ def init_schema(conn: sqlite3.Connection):
         f"""
         CREATE TABLE IF NOT EXISTS {DB.REM_STAGE_2.value} (
             {DB.ID.value} TEXT PRIMARY KEY,
-            {DB.GOLD_LABEL.value} INTEGER NOT NULL,
-            {DB.VERDICT.value} TEXT NOT NULL,
-            {DB.FINAL_LABEL.value} INTEGER NOT NULL,
-            {DB.SUPPORT_EVIDENCE.value} TEXT,
-            {DB.ERROR_EVIDENCE.value} TEXT,
-            {DB.MISSING_EVIDENCE.value} TEXT,
+            {DB.TRUE_LABEL.value} INTEGER NOT NULL,
+            {DB.PRED_LABEL.value} INTEGER NOT NULL,
+            {DB.IS_CORRECT.value} INTEGER NOT NULL,
+            {DB.EVIDENCE.value} TEXT,
             {DB.MEMORY.value} TEXT,
             {DB.RAW_JSON.value} TEXT,
             {DB.CREATED_AT.value} TEXT NOT NULL
@@ -52,7 +50,7 @@ def init_schema(conn: sqlite3.Connection):
         """
     )
     conn.execute(
-        f"CREATE INDEX IF NOT EXISTS {DB.REM_STAGE_2.value}_verdict ON {DB.REM_STAGE_2.value} ({DB.VERDICT.value});"
+        f"CREATE INDEX IF NOT EXISTS {DB.REM_STAGE_2.value}_iscorrect ON {DB.REM_STAGE_2.value} ({DB.IS_CORRECT.value});"
     )
     conn.commit()
 
@@ -113,12 +111,10 @@ def upsert_stage2(
     conn: sqlite3.Connection,
     *,
     sid: str,
-    gold_label: int,
-    verdict: str,
-    final_label: int,
-    support_evidence: str,
-    error_evidence: str,
-    missing_evidence: str,
+    true_label: int,
+    pred_label: int,
+    is_correct: int,
+    evidence: str,
     memory: str,
     raw_json: str,
 ):
@@ -127,26 +123,22 @@ def upsert_stage2(
         INSERT OR REPLACE INTO {DB.REM_STAGE_2.value}
         (
             {DB.ID.value},
-            {DB.GOLD_LABEL.value},
-            {DB.VERDICT.value},
-            {DB.FINAL_LABEL.value},
-            {DB.SUPPORT_EVIDENCE.value},
-            {DB.ERROR_EVIDENCE.value},
-            {DB.MISSING_EVIDENCE.value},
+            {DB.TRUE_LABEL.value},
+            {DB.PRED_LABEL.value},
+            {DB.IS_CORRECT.value},
+            {DB.EVIDENCE.value},
             {DB.MEMORY.value},
             {DB.RAW_JSON.value},
             {DB.CREATED_AT.value}
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             sid,
-            int(gold_label),
-            str(verdict),
-            int(final_label),
-            str(support_evidence),
-            str(error_evidence),
-            str(missing_evidence),
+            int(true_label),
+            int(pred_label),
+            int(is_correct),
+            str(evidence),
             str(memory),
             raw_json,
             datetime.utcnow().isoformat(),

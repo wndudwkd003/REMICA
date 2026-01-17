@@ -10,12 +10,11 @@ from pydantic import BaseModel, Field
 
 
 class RemStage2Out(BaseModel):
-    final_label: int = Field(..., description="0 or 1")
-    verdict: str = Field(..., description='"correct" or "wrong"')
-    support_evidence: str
-    error_evidence: str
-    missing_evidence: str
-    memory: str
+    evidence: str = Field(
+        ...,
+        description="single evidence string; correct=key support, wrong='ERROR: ... | MISSING: ...'",
+    )
+    memory: str = Field(..., description="one-line reusable rule; no quotes")
 
 
 class GPTClientStage2:

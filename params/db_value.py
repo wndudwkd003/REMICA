@@ -16,10 +16,7 @@ class DB(Enum):
     CREATED_AT = "created_at"
 
     # stage2
-    GOLD_LABEL = "gold_label"
-    VERDICT = "verdict"
-    FINAL_LABEL = "final_label"
-    SUPPORT_EVIDENCE = "support_evidence"
-    ERROR_EVIDENCE = "error_evidence"
-    MISSING_EVIDENCE = "missing_evidence"
+    TRUE_LABEL = "true_label"
+    IS_CORRECT = "is_correct"
+    EVIDENCE = "evidence"
     MEMORY = "memory"

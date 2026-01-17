@@ -43,6 +43,8 @@ SELECT_MODEL = ModelEnum.Longformer
 
 @dataclass
 class Config:
+    emb_device: str = "cuda"  # "cuda" or "cpu"
+    rem_gpus: list[int] = field(default_factory=lambda: [0, 1, 2, 3])
     datasets_dir: str = "datasets_processed"
 
     dataset_order: list[tuple[DatasetEnum, int]] = field(
@@ -69,6 +71,8 @@ class Config:
     )
     rem_split: str = "train"
     rem_dir: str = "rem"
+
+    rem_worker: int = 15
 
     # GPT 관련
     gpt_model: str = "gpt-5-mini-2025-08-07"
