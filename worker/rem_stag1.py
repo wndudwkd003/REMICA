@@ -12,7 +12,10 @@ from tqdm.auto import tqdm
 from config.config import REM_STEP_1_DATASET, Config, DatasetEnum
 from params.db_value import DB
 from utils.data_utils import JsonlDataset
-from utils.db_utils import open_db, init_schema, exists, upsert_stage1
+
+from utils.db_utils import open_db, init_stage1_schema, exists, upsert_stage1
+
+
 from utils.gpt_client_stage1 import GPTClient
 from utils.prompt_utils import build_rem_stage1_prompt
 from utils.retriever import SimilarTextRetriever
@@ -107,11 +110,10 @@ def run_rem_stage1(config: Config):
     split = config.rem_split
     print(f"[rem_stage1.py] split: {split}")
 
-    rem_dir = Path(config.rem_dir)
-    db_path = rem_dir / "stage_1.sqlite3"
+    db_path = config.remica_db_path
 
     conn = open_db(db_path)
-    init_schema(conn)
+    init_stage1_schema(conn)
 
     total_workers = int(config.rem_worker)
 

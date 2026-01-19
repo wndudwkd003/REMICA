@@ -2,7 +2,7 @@
 
 from typing import List
 from config.config import DatasetEnum
-
+import json
 
 _STAGE1_SYSTEM = """You are a rater who judges whether a text is appropriate or inappropriate.
 
@@ -153,3 +153,68 @@ SIMILAR TEXTS (reference only):
 
 {_STAGE2_OUTPUT_RULES}
 """
+
+
+def build_ica_prompt(turns, source_dataset: str, split: str, sid: str) -> str:
+    """
+    ICA prompt builder (Aligned with GPTClientICA.ICAOut)
+    - Output JSON keys MUST be: context_summary, triggers, targets, rules
+    - triggers/targets/rules MUST be JSON arrays of strings (NOT JSON-encoded strings)
+    """
+
+    def speaker_name(s):
+        if s == 1 or str(s) == "1":
+            return "A"
+        if s == 2 or str(s) == "2":
+            return "B"
+        s = str(s).strip().upper()
+        return "A" if s == "A" else "B"
+
+    dialog = []
+    for t in turns:
+        sp = speaker_name(t.get("speaker"))
+        txt = str(t.get("text", "")).strip()
+        dialog.append(f"{sp}: {txt}")
+
+    dialog_block = "\n".join(dialog)
+
+    schema = {
+        "context_summary": "string",
+        "triggers": "array of strings",
+        "targets": "array of strings",
+        "rules": "array of strings",
+    }
+
+    return f"""
+You are an extractor for safety/toxicity-aware dialogue classification.
+
+What is an "intervention rule"?
+- A compact, reusable decision heuristic distilled from the dialogue context.
+- It states what contextual signals matter (triggers/targets) and how they should influence a later safety judgment.
+- Example: "If the speaker expresses intent to harm a person/group, label as inappropriate."
+
+Input:
+- A 4-turn dialogue window with alternating speakers A/B.
+
+Goal (use ONLY what is present in the dialogue):
+1) Triggers: phrases/acts/intent signals that can affect a harmful/inappropriate judgment.
+2) Targets: who/what is targeted (group/person/institution/animal/social group). If none, use an empty list.
+3) Rules: 1–3 short, generalizable intervention rules derived from triggers/targets.
+   Prefer if-then style (condition → decision hint). Keep them reusable.
+
+Constraints:
+- No guessing. Do not invent facts not supported by the dialogue.
+- You MUST return JSON with exactly the keys below.
+- triggers / targets / rules MUST each be a JSON array of strings (e.g., ["a","b"]), not a JSON-encoded string.
+
+Meta:
+- source_dataset: {source_dataset}
+- split: {split}
+- sid: {sid}
+
+[4-turn dialogue]
+{dialog_block}
+
+Return ONLY a JSON object that matches this schema:
+{json.dumps(schema, ensure_ascii=False)}
+""".strip()

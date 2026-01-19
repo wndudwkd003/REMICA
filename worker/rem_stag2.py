@@ -11,7 +11,7 @@ from tqdm.auto import tqdm
 from config.config import Config, REM_STEP_1_DATASET, DatasetEnum
 from params.db_value import DB
 from utils.data_utils import JsonlDataset
-from utils.db_utils import open_db, init_schema, exists, get_stage1, upsert_stage2
+from utils.db_utils import open_db, init_stage1_schema, init_stage2_schema
 from utils.retriever import SimilarTextRetriever
 from utils.prompt_utils import build_rem_stage2_prompt
 from utils.gpt_client_stage2 import GPTClientStage2
@@ -128,10 +128,10 @@ def run_rem_stage2(config: Config):
     db2_path = rem_dir / "stage_2.sqlite3"
 
     conn1 = open_db(db1_path)
-    init_schema(conn1)
+    init_stage1_schema(conn1)
 
     conn2 = open_db(db2_path)
-    init_schema(conn2)
+    init_stage2_schema(conn2)
 
     total_workers = int(config.rem_worker)
 

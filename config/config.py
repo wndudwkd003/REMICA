@@ -17,12 +17,24 @@ class DatasetEnum(Enum):
     ISHate = "ISHate"
 
 
+class ContextDatasetEnum(Enum):
+    PROSOCIAL_DIALOG = "prosocial-dialog"
+    BOT_ADVERSARIAL_DIALOGUE = "bot-adversarial-dialogue"
+    TOXICHAT = "toxichat"
+
+
 REM_STEP_1_DATASET = [
     DatasetEnum.HSOL,
     DatasetEnum.HateXplain,
     DatasetEnum.DiaSafety,
     DatasetEnum.ToxiSpanSE,
     DatasetEnum.HSD,
+]
+
+ICA_STEP_DATASET = [
+    ContextDatasetEnum.PROSOCIAL_DIALOG,
+    ContextDatasetEnum.BOT_ADVERSARIAL_DIALOGUE,
+    ContextDatasetEnum.TOXICHAT,
 ]
 
 
@@ -46,6 +58,7 @@ class Config:
     emb_device: str = "cuda"  # "cuda" or "cpu"
     rem_gpus: list[int] = field(default_factory=lambda: [0, 1, 2, 3])
     datasets_dir: str = "datasets_processed"
+    context_datasets_dir: str = "datasets_context_processed"
 
     dataset_order: list[tuple[DatasetEnum, int]] = field(
         default_factory=lambda: [
@@ -64,18 +77,21 @@ class Config:
         ]
     )
 
-    do_mode: str = "REM_Stage_1"  # REM_Stage_1 | REM_Stage_2 |
+    do_mode: str | None = "ICA"  # REM_Stage_1 | REM_Stage_2 | ICA | check
     api_json_path: str = "config/api.json"
     rem_step1_datasets: list[DatasetEnum] = field(
         default_factory=lambda: REM_STEP_1_DATASET
     )
+    ica_step_datasets: list[ContextDatasetEnum] = field(
+        default_factory=lambda: ICA_STEP_DATASET
+    )
     rem_split: str = "train"
-    rem_dir: str = "rem"
-
-    rem_worker: int = 15
+    remica_db_path: str = "rem/remica.sqlite3"
+    rem_worker: int = 4
+    resume_run_dir: str | None = "runs/20260114_144422_Longformer"
 
     # GPT 관련
-    gpt_model: str = "gpt-5-mini-2025-08-07"
+    gpt_model: str = "gpt-5.2-2025-12-11"  # "gpt-5-mini-2025-08-07"
     gpt_temperature: float = 0.0
     gpt_max_output_tokens: int = 512
     gpt_concurrency: int = 8

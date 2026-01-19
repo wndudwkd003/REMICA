@@ -4,7 +4,11 @@ from config.config import Config
 from worker.trainer import train, test
 from worker.rem_stag1 import run_rem_stage1
 
+from worker.ica_stage import run_ica
 from worker.rem_stag2 import run_rem_stage2
+
+from utils.db_utils import open_db
+
 import json
 import os
 
@@ -14,16 +18,51 @@ def token_key_regist(json_path: str):
         data = json.load(f)
 
     for key, value in data.items():
-        # 환경 변수로 설정
         os.environ[key] = value
         print(f"Registered token for {key}")
+
+
+def _db_check(config: Config):
+    db_path = config.remica_db_path
+    conn = open_db(db_path)
+
+    tables = [
+        r[0]
+        for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;"
+        ).fetchall()
+    ]
+    print(f"[CHECK] DB: {db_path}")
+    print(f"[CHECK] tables: {tables}")
+
+    for t in tables:
+        cols = conn.execute(f"PRAGMA table_info({t});").fetchall()
+        col_names = [c[1] for c in cols]
+
+        cnt = conn.execute(f"SELECT COUNT(*) FROM {t};").fetchone()[0]
+
+        print("\n" + "=" * 80)
+        print(f"[TABLE] {t}")
+        print(f"  columns({len(col_names)}): {col_names}")
+        print(f"  rows: {cnt}")
+
+        if cnt > 0:
+            sample = conn.execute(f"SELECT * FROM {t} LIMIT 1;").fetchone()
+            sample_dict = {col_names[i]: sample[i] for i in range(len(col_names))}
+            print("  sample_row:")
+            print(json.dumps(sample_dict, ensure_ascii=False, indent=2)[:2000])
+
+    conn.close()
 
 
 def main(config: Config):
     print(f"Current Model: {config.model_name} ({config.model_id})")
     print(f"do_mode: {config.do_mode}")
 
-    # REM Stage 1은 학습/테스트가 아니라 GPT 기반 데이터 생성 파이프라인
+    if config.do_mode == "check":
+        _db_check(config)
+        return
+
     if config.do_mode == "REM_Stage_1":
         out_db = run_rem_stage1(config)
         print(f"[DONE] REM Stage1 db: {out_db}")
@@ -31,6 +70,10 @@ def main(config: Config):
     elif config.do_mode == "REM_Stage_2":
         out_db = run_rem_stage2(config)
         print(f"[DONE] REM Stage2 db: {out_db}")
+        return
+    elif config.do_mode == "ICA":
+        out_db = run_ica(config)
+        print(f"[DONE] ICA db: {out_db}")
         return
 
     if config.train_mode == "train":

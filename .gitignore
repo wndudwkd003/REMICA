@@ -5,7 +5,7 @@ __pycache__
 *.pt
 
 meta.json
-
+datasets_context_processed
 datasets_processed
 *.csv
 *.png
@@ -13,3 +13,6 @@ runs
 *.faiss
 sim_index
 rem
+
+
+api.md

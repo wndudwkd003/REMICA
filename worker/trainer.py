@@ -9,7 +9,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 from tqdm.auto import tqdm
-
+import shutil
 from config.config import Config, DatasetEnum
 import pandas as pd
 import torch
@@ -22,6 +22,36 @@ from utils.collate_utils import TextCollator
 from core.build_model import build_model
 from utils.viz_utils import plot_cross_grid
 from utils.viz_utils import plot_train_valid_curves
+
+
+def is_done_dataset(run_dir: Path, ds: DatasetEnum) -> bool:
+    save_dir = run_dir / "save" / ds.name
+    required = [
+        "best.pt",
+        "meta.json",
+        "train_valid_history.csv",
+        "train_valid_loss.png",
+        "train_valid_acc.png",
+    ]
+    return all((save_dir / fn).exists() for fn in required)
+
+
+def backup_partial_save_dir_if_exists(run_dir: Path, ds: DatasetEnum):
+    """
+    완료가 아닌데(save/<ds>) 폴더가 이미 존재하면, 덮어쓰기 방지를 위해 백업 폴더로 이동.
+    """
+    save_dir = run_dir / "save" / ds.name
+    if not save_dir.exists():
+        return
+
+    # 이미 완료(B안 기준)면 백업할 필요 없음
+    if is_done_dataset(run_dir, ds):
+        return
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_dir = save_dir.parent / f"{ds.name}__partial_backup_{ts}"
+    shutil.move(str(save_dir), str(backup_dir))
+    print(f"[RESUME-B] moved partial save_dir -> {backup_dir}")
 
 
 def get_device() -> torch.device:
@@ -342,57 +372,104 @@ def test_cross(config: Config, ckpt_path: Path, train_dataset: "DatasetEnum"):
     return out
 
 
+def load_existing_results(run_dir: Path) -> dict:
+    """
+    기존 cross_test.json이 있으면 로드해서 이어쓰기.
+    없으면 빈 dict 반환.
+    """
+    path = run_dir / "results" / "cross_test.json"
+    if path.exists():
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+def write_results(run_dir: Path, config: Config, all_results: dict):
+    """
+    cross_test.json/csv 및 grid 이미지 갱신 저장
+    """
+    results_dir = run_dir / "results"
+    results_dir.mkdir(parents=True, exist_ok=True)
+
+    with open(results_dir / "cross_test.json", "w", encoding="utf-8") as f:
+        json.dump(all_results, f, ensure_ascii=False, indent=2)
+
+    rows = []
+    for tr, d in all_results.items():
+        for te, m in d.items():
+            rows.append(
+                {
+                    "train_dataset": tr,
+                    "test_dataset": te,
+                    "acc": m["acc"],
+                    "loss": m["loss"],
+                    "n": m["n"],
+                }
+            )
+
+    csv_path = results_dir / "cross_test.csv"
+    pd.DataFrame(rows).to_csv(csv_path, index=False)
+
+    order_names = [ds.name for ds, _ in config.dataset_order]
+
+    plot_cross_grid(
+        csv_path=csv_path,
+        out_path=results_dir / "cross_test_grid_acc.png",
+        metric="acc",
+        dataset_order=order_names,
+        title="Cross-test Accuracy",
+        fmt=".3f",
+    )
+    plot_cross_grid(
+        csv_path=csv_path,
+        out_path=results_dir / "cross_test_grid_loss.png",
+        metric="loss",
+        dataset_order=order_names,
+        title="Cross-test Loss",
+        fmt=".3f",
+    )
+
+
 def train(config: Config):
-    run_dir = make_run_dir(config)
-    all_results = {}
+    resume_dir = config.resume_run_dir
+
+    if resume_dir:
+        run_dir = Path(resume_dir)
+        assert run_dir.exists(), f"resume_run_dir not found: {run_dir}"
+
+        print(f"[RESUME] using existing run_dir: {run_dir}")
+        all_results = load_existing_results(run_dir)
+
+    else:
+        run_dir = make_run_dir(config)
+        all_results = {}
+        print(f"[NEW RUN] run_dir: {run_dir}")
 
     outer = tqdm(config.dataset_order, desc="train-datasets")
+
     for train_dataset, bs in outer:
+        done = is_done_dataset(run_dir, train_dataset)
+
+        if done:
+            if train_dataset.name not in all_results:
+                ckpt_path = run_dir / "save" / train_dataset.name / "best.pt"
+                cross = test_cross(config, ckpt_path, train_dataset)
+                all_results[train_dataset.name] = cross
+                write_results(run_dir, config, all_results)
+
+            outer.set_postfix(skipped=train_dataset.name)
+            continue
+
+        backup_partial_save_dir_if_exists(run_dir, train_dataset)
+
+        if train_dataset.name in all_results:
+            del all_results[train_dataset.name]
+
         ckpt_path = train_model(config, run_dir, train_dataset, batch_size=bs)
         cross = test_cross(config, ckpt_path, train_dataset)
         all_results[train_dataset.name] = cross
 
-        results_dir = run_dir / "results"
-        results_dir.mkdir(parents=True, exist_ok=True)
-
-        with open(results_dir / "cross_test.json", "w", encoding="utf-8") as f:
-            json.dump(all_results, f, ensure_ascii=False, indent=2)
-
-        rows = []
-        for tr, d in all_results.items():
-            for te, m in d.items():
-                rows.append(
-                    {
-                        "train_dataset": tr,
-                        "test_dataset": te,
-                        "acc": m["acc"],
-                        "loss": m["loss"],
-                        "n": m["n"],
-                    }
-                )
-
-        csv_path = results_dir / "cross_test.csv"
-        pd.DataFrame(rows).to_csv(csv_path, index=False)
-
-        order_names = [ds.name for ds, _ in config.dataset_order]
-
-        plot_cross_grid(
-            csv_path=csv_path,
-            out_path=results_dir / "cross_test_grid_acc.png",
-            metric="acc",
-            dataset_order=order_names,
-            title="Cross-test Accuracy",
-            fmt=".3f",
-        )
-        plot_cross_grid(
-            csv_path=csv_path,
-            out_path=results_dir / "cross_test_grid_loss.png",
-            metric="loss",
-            dataset_order=order_names,
-            title="Cross-test Loss",
-            fmt=".3f",
-        )
-
+        write_results(run_dir, config, all_results)
         cleanup_gpu()
 
     print(f"\n[DONE] run_dir={run_dir}")
