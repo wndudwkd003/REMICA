@@ -17,12 +17,12 @@ class DatasetEnum(Enum):
     TOXICHAT = "toxichat"
 
 
-SELECTED_DATASET = DatasetEnum.PROSOCIAL_DIALOG
+SELECTED_DATASET = DatasetEnum.TOXICHAT
 SEED = 42
 DATASET_DIR = "datasets"
 OUT_DIR = "datasets_context_processed"
 HATE_LABEL = 1
-TRAIN_DATA_MAX = 1000
+TRAIN_DATA_MAX = 500
 
 
 def norm_text(x: Any) -> str:

@@ -107,52 +107,102 @@ IMPORTANT: memory must NOT contain quote characters (no " and no ').
 """
 
 
+def _format_rules(rules: list[str] | None) -> str:
+    rules = [str(r).strip() for r in (rules or []) if str(r).strip()]
+    if not rules:
+        return "(no intervention rules provided)"
+    return "\n".join([f"- {r}" for r in rules])
+
+
 def build_rem_stage2_prompt(
     *,
-    ds: DatasetEnum,
     text: str,
-    similar_texts: List[str],
-    true_label: int,
-    stage1_pred: int,
-    stage1_rationale: str,
+    run_tag: str,  # "run0" | "run1" | "run2"
+    stage1_pred_label: int | None = None,
+    stage1_rationale: str | None = None,
+    ica_rules: list[str] | None = None,  # run1/run2에서 제공되는 규칙(또는 변형된 규칙)
+    true_label: int | None = None,  # 반성/강화용 정답(판정 shortcut 금지)
 ) -> str:
-    perspective = build_dataset_perspective(ds)
-    sims = "\n".join([f"{i+1}. {t}" for i, t in enumerate(similar_texts)])
+    """
+    REM Stage 2 = Reflective Memory 생성 단계 (Perspective 없이).
+    - pred_label은 여전히 출력하지만,
+      true_label이 있으면 '판정 바꾸기'가 아니라 '근거/메모리 교정'에만 쓰도록 강제한다.
+    """
 
-    is_correct = int(stage1_pred) == int(true_label)
+    rules_block = _format_rules(ica_rules)
 
-    if is_correct:
-        focus = """Case: CORRECT
-Task:
-- Extract the single most decisive evidence in TEXT that supports the true label.
-- Write a one-line reusable rule (memory) that generalizes this decision.
-Be concise."""
+    schema = {
+        "pred_label": 0,  # 0=appropriate, 1=inappropriate
+        "evidence": "",  # 근거(맞/틀 분석 포함)
+        "memory": "",  # 다음에 재사용 가능한 reflective memory (1~2문장)
+        "used_rules": [],  # 실제 사용한 규칙 subset (run0이면 반드시 [])
+    }
+
+    gold_part = ""
+    if true_label is not None:
+        gold_part = f"""
+Gold label (for reflection only):
+- true_label: {int(true_label)}
+
+Important:
+- Do NOT use the gold label as a shortcut to change the classification.
+- Use it ONLY to correct/strengthen reasoning: explain why the TEXT supports the true label.
+""".strip()
+
+    if run_tag == "run0":
+        run_rule_constraint = """
+Rules:
+- No intervention rules are provided in this run.
+- used_rules MUST be an empty list [].
+""".strip()
     else:
-        focus = """Case: WRONG
-Task:
-- Identify what in TEXT likely triggered the wrong decision (ERROR).
-- Identify what should have been prioritized/checked to reach the true label (MISSING).
-- Write a one-line reusable rule (memory) that prevents this mistake next time.
-Be concise."""
+        run_rule_constraint = """
+Rules:
+- Intervention rules are provided below.
+- used_rules MUST be a subset of the provided rules (or empty if none apply).
+""".strip()
 
-    return f"""You are a reflection agent.
+    return f"""
+You are generating Reflective Memory for safety/toxicity classification.
 
-{perspective}
+What you must do:
+1) Predict pred_label for the TEXT (0=appropriate, 1=inappropriate).
+2) Write EVIDENCE grounded in the TEXT (and rules if provided).
+3) Write MEMORY: a compact reusable rule/checklist (1–2 sentences).
+4) Fill used_rules with only the rules you actually used (subset). If no rules provided, used_rules must be [].
 
-true_label: {int(true_label)}
-stage1_pred: {int(stage1_pred)}
-stage1_rationale: {stage1_rationale}
+Definition:
+- EVIDENCE must cite concrete cues from the TEXT (intent, target, violence, slurs, harassment, etc.).
+- MEMORY must be generalizable: do not copy the text; write a reusable heuristic/check.
+
+Strict constraints:
+- No guessing beyond the text.
+- Output ONLY one valid JSON object in one line.
+- Use exactly the keys in the schema. Do not add any other keys.
+- memory must NOT contain quote characters (no " and no ').
 
 TEXT:
 {text}
 
-SIMILAR TEXTS (reference only):
-{sims}
+Stage1 hint (may be wrong/noisy):
+- stage1_pred_label: {stage1_pred_label}
+- stage1_rationale: {stage1_rationale}
 
-{focus}
+{gold_part}
 
-{_STAGE2_OUTPUT_RULES}
-"""
+{run_rule_constraint}
+
+Intervention rules:
+{rules_block}
+
+EVIDENCE writing rule:
+- If true_label is provided and your pred_label matches it: write the key cues supporting the true label.
+- If true_label is provided and your pred_label conflicts with it: write evidence in this format:
+  ERROR: <what likely misled you or stage1> | MISSING: <what should be checked to match true_label>
+
+Return ONLY this JSON schema:
+{json.dumps(schema, ensure_ascii=False)}
+""".strip()
 
 
 def build_ica_prompt(turns, source_dataset: str, split: str, sid: str) -> str:

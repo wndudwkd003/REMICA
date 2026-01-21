@@ -31,8 +31,21 @@ def init_stage1_schema(conn: sqlite3.Connection):
     conn.commit()
 
 
+def _get_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    cur = conn.execute(f"PRAGMA table_info({table});")
+    return {str(r[1]) for r in cur.fetchall()}  # r[1] = column name
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str, col: str, col_def: str):
+    cols = _get_columns(conn, table)
+    if col not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {col_def};")
+
+
 def init_stage2_schema(conn: sqlite3.Connection):
     table = DB.REM_STAGE_2.value
+
+    # 1) 테이블이 없으면 최신 스키마로 생성
     conn.execute(
         f"""
         CREATE TABLE IF NOT EXISTS {table} (
@@ -52,6 +65,16 @@ def init_stage2_schema(conn: sqlite3.Connection):
         )
         """
     )
+
+    # 2) 이미 존재하는 옛 테이블이면(컬럼 부족) ALTER로 보강
+    _ensure_column(conn, table, DB.EVIDENCE.value, f"{DB.EVIDENCE.value} TEXT")
+    _ensure_column(conn, table, DB.MEMORY.value, f"{DB.MEMORY.value} TEXT")
+    _ensure_column(conn, table, DB.RELIABILITY.value, f"{DB.RELIABILITY.value} REAL")
+    _ensure_column(conn, table, DB.RUNS_JSON.value, f"{DB.RUNS_JSON.value} TEXT")
+    _ensure_column(conn, table, DB.RAW_JSON.value, f"{DB.RAW_JSON.value} TEXT")
+    _ensure_column(conn, table, DB.CREATED_AT.value, f"{DB.CREATED_AT.value} TEXT")
+
+    # 3) 인덱스 생성 (컬럼이 보장된 뒤 생성)
     conn.execute(
         f"CREATE INDEX IF NOT EXISTS {table}_iscorrect ON {table} ({DB.IS_CORRECT.value});"
     )
@@ -61,6 +84,7 @@ def init_stage2_schema(conn: sqlite3.Connection):
     conn.execute(
         f"CREATE INDEX IF NOT EXISTS {table}_reliability ON {table} ({DB.RELIABILITY.value});"
     )
+
     conn.commit()
 
 

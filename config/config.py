@@ -77,7 +77,7 @@ class Config:
         ]
     )
 
-    do_mode: str | None = "ICA"  # REM_Stage_1 | REM_Stage_2 | ICA | check
+    do_mode: str | None = "REM_Stage_2"  # REM_Stage_1 | REM_Stage_2 | ICA | check
     api_json_path: str = "config/api.json"
     rem_step1_datasets: list[DatasetEnum] = field(
         default_factory=lambda: REM_STEP_1_DATASET
@@ -87,11 +87,13 @@ class Config:
     )
     rem_split: str = "train"
     remica_db_path: str = "rem/remica.sqlite3"
-    rem_worker: int = 4
+    rem_worker: int = 12
     resume_run_dir: str | None = "runs/20260114_144422_Longformer"
 
     # GPT 관련
-    gpt_model: str = "gpt-5.2-2025-12-11"  # "gpt-5-mini-2025-08-07"
+    gpt_model: str = (
+        "gpt-4.1-2025-04-14"  # "gpt-5-mini-2025-08-07" # gpt-5.2-2025-12-11 # gpt-5-mini-2025-08-07 # gpt-4.1-2025-04-14
+    )
     gpt_temperature: float = 0.0
     gpt_max_output_tokens: int = 512
     gpt_concurrency: int = 8
