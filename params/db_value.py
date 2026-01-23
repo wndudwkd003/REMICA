@@ -15,7 +15,6 @@ class DB(Enum):
 
     # stage1 cols
     PRED_LABEL = "pred_label"
-    CONFIDENCE = "confidence"
     RATIONALE = "rationale"
 
     # stage2 cols

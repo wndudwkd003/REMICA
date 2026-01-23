@@ -26,4 +26,4 @@ class JsonlDataset(Dataset):
         metadata = sample["metadata"]
         if self.meta_to_text:
             text = f"{text} {metadata}"
-        return sid, text, label, metadata
+        return str(sid), str(text), int(label), metadata

@@ -1,17 +1,16 @@
 # run.py
-from utils.seeds_utils import set_seeds
-from config.config import Config
-from worker.trainer import train, test
-from worker.rem_stag1 import run_rem_stage1
-
-from worker.ica_stage import run_ica
-from worker.rem_stag2 import run_rem_stage2
-from worker.gpt_infer import run_gpt_infer
-from utils.db_utils import open_db
-
 import json
 import os
 from pathlib import Path
+
+from config.config import Config
+from utils.db_utils import open_db
+from utils.seeds_utils import set_seeds
+from worker.gpt_infer import run_gpt_infer
+from worker.ica_stage import run_ica
+from worker.rem_stag1 import run_rem_stage1
+from worker.rem_stag2 import run_rem_stage2
+from worker.trainer import test, train
 
 
 def token_key_regist(json_path: str):

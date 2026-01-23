@@ -25,10 +25,14 @@ class ContextDatasetEnum(Enum):
 
 REM_STEP_1_DATASET = [
     DatasetEnum.HSOL,
-    DatasetEnum.HateXplain,
-    DatasetEnum.DiaSafety,
+    DatasetEnum.RealToxicityPrompts,
     DatasetEnum.ToxiSpanSE,
-    DatasetEnum.HSD,
+    DatasetEnum.HSDCD,
+]
+
+DATASET_BS = 4
+DATASET_ORDER = [
+    (dataset, DATASET_BS) for dataset in REM_STEP_1_DATASET
 ]
 
 ICA_STEP_DATASET = [
@@ -56,7 +60,7 @@ SELECT_MODEL = ModelEnum.ModernBERT
 @dataclass
 class Config:
 
-    use_rem2_aug: bool = True  # True | False
+    use_rem2_aug: bool = False  # True | False
     rem2_top_k: int = 3
     rem2_min_reliability: float = 0.65
     rem2_only_correct: bool = True
@@ -68,20 +72,14 @@ class Config:
     datasets_dir: str = "datasets_processed"
     context_datasets_dir: str = "datasets_context_processed"
 
-    dataset_sum: bool = True  # True | False
+    dataset_sum: bool = False  # True | False
     dataset_sum_batch_size: int = 4
     dataset_order: list[tuple[DatasetEnum, int]] = field(
-        default_factory=lambda: [
-            (DatasetEnum.HSOL, 4),
-            (DatasetEnum.HateXplain, 4),
-            (DatasetEnum.DiaSafety, 4),
-            (DatasetEnum.ToxiSpanSE, 4),
-            (DatasetEnum.HSD, 4),
-        ]
+        default_factory=lambda: DATASET_ORDER
     )
 
     do_mode: str | None = (
-        None  # REM_Stage_1 | REM_Stage_2 | ICA | GPT_INFER | check | None
+        "REM_Stage_1"  # REM_Stage_1 | REM_Stage_2 | ICA | GPT_INFER | check | None
     )
     api_json_path: str = "config/api.json"
     rem_step1_datasets: list[DatasetEnum] = field(
@@ -126,7 +124,7 @@ class Config:
     early_stopping_patience: int = 5
     early_stopping_delta: float = 0.001
 
-    sim_k: int = 3
+    rem_1_top_k: int = 3
     emb_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     emb_batch_size: int = 128
-    sim_index_dir: str = "sim_index"
+    sim_index_dir: str = "rem/sim_index"

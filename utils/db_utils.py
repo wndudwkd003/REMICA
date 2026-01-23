@@ -1,6 +1,7 @@
 # utils/db_utils.py
 import sqlite3
 from datetime import datetime
+
 from params.db_value import DB
 
 
@@ -18,7 +19,6 @@ def init_stage1_schema(conn: sqlite3.Connection):
         CREATE TABLE IF NOT EXISTS {table} (
             {DB.ID.value} TEXT PRIMARY KEY,
             {DB.PRED_LABEL.value} INTEGER NOT NULL,
-            {DB.CONFIDENCE.value} REAL,
             {DB.RATIONALE.value} TEXT,
             {DB.RAW_JSON.value} TEXT,
             {DB.CREATED_AT.value} TEXT NOT NULL
@@ -147,7 +147,6 @@ def upsert_stage1(
     conn: sqlite3.Connection,
     sid: str,
     pred_label: int,
-    confidence: float,
     rationale: str,
     raw_json: str,
 ):
@@ -155,14 +154,12 @@ def upsert_stage1(
     conn.execute(
         f"""
         INSERT OR REPLACE INTO {table}
-        ({DB.ID.value}, {DB.PRED_LABEL.value}, {DB.CONFIDENCE.value},
-         {DB.RATIONALE.value}, {DB.RAW_JSON.value}, {DB.CREATED_AT.value})
-        VALUES (?, ?, ?, ?, ?, ?)
+        ({DB.ID.value}, {DB.PRED_LABEL.value}, {DB.RATIONALE.value}, {DB.RAW_JSON.value}, {DB.CREATED_AT.value})
+        VALUES (?, ?, ?, ?, ?)
         """,
         (
             sid,
-            int(pred_label),
-            float(confidence),
+            pred_label,
             rationale,
             raw_json,
             datetime.utcnow().isoformat(),
@@ -174,7 +171,7 @@ def get_stage1(conn: sqlite3.Connection, sid: str):
     table = DB.REM_STAGE_1.value
     cur = conn.execute(
         f"""
-        SELECT {DB.PRED_LABEL.value}, {DB.CONFIDENCE.value}, {DB.RATIONALE.value}
+        SELECT {DB.PRED_LABEL.value}, {DB.RATIONALE.value}
         FROM {table}
         WHERE {DB.ID.value}=?
         """,
@@ -183,7 +180,7 @@ def get_stage1(conn: sqlite3.Connection, sid: str):
     row = cur.fetchone()
     if row is None:
         return None
-    return {"pred_label": int(row[0]), "confidence": float(row[1]), "rationale": row[2]}
+    return {"pred_label": int(row[0]),"rationale": row[1]}
 
 
 def upsert_stage2(

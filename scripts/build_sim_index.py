@@ -3,11 +3,10 @@
 import json
 from pathlib import Path
 
-import numpy as np
 import faiss
 from sentence_transformers import SentenceTransformer
 
-from config.config import Config, REM_STEP_1_DATASET, DatasetEnum
+from config.config import REM_STEP_1_DATASET, Config, DatasetEnum
 from utils.data_utils import JsonlDataset
 from utils.seeds_utils import set_seeds
 

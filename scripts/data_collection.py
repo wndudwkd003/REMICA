@@ -1,16 +1,15 @@
-import os
 import json
-from pathlib import Path
-import pandas as pd
-
-from sklearn.model_selection import train_test_split
-from scripts.filter_utils import is_only_url_or_symbol
-from collections import Counter
+import os
 import random
+from collections import Counter
+from enum import Enum
+from pathlib import Path
 
 import matplotlib.pyplot as plt
+import pandas as pd
+from sklearn.model_selection import train_test_split
 
-from enum import Enum
+from scripts.filter_utils import is_only_url_or_symbol
 
 
 class DatasetEnum(Enum):
@@ -28,7 +27,7 @@ class DatasetEnum(Enum):
     ISHate = "ISHate"
 
 
-SELECT_DATA = DatasetEnum.ISHate
+SELECT_DATA = DatasetEnum.HSDCD
 DATASET_DIR = "datasets"
 DO_MODE = "process_data"  # "check_count" | "process_data"
 SEED = 42
@@ -36,10 +35,103 @@ OUT_DIR = "datasets_processed"
 HATE_LABEL = 1
 
 COUNT_MATCHING = True
+MAX_TRAIN_SAMPLES: int | None = 8000  # train split의 최대 샘플 수 (valid/test는 8:1:1 비율로 자동 결정)
+
 
 
 os.makedirs(OUT_DIR, exist_ok=True)
 
+def limit_max_samples(results, max_train: int | None, seed: int):
+    """
+    train/valid/test 전체 크기를 줄이되,
+    - 최종적으로 train : valid : test ≈ 8 : 1 : 1 비율 유지
+    - 각 split 내부에서는 label(0/1) 균형 유지
+    max_train: train split의 최대 샘플 수 (None이면 제한 없음)
+    """
+    if max_train is None:
+        return results
+
+    rng = random.Random(seed + 123)
+
+    # 현재 split별 샘플 수
+    n_train = len(results["train"])
+    n_valid = len(results["valid"])
+    n_test = len(results["test"])
+
+    # 1) train 타겟 개수 (상한)
+    target_train = min(n_train, max_train)
+
+    # 2) 8 : 1 : 1 비율 기준 valid/test 타겟 개수
+    #    train : valid = 8 : 1  → valid ≈ train / 8
+    #    train : test  = 8 : 1  → test  ≈ train / 8
+    base_valid = target_train // 8
+    if base_valid < 1:
+        base_valid = 1  # 최소 1개는 유지
+
+    target_valid = min(n_valid, base_valid)
+    target_test = min(n_test, base_valid)
+
+    targets = {
+        "train": target_train,
+        "valid": target_valid,
+        "test": target_test,
+    }
+
+    out = {"train": [], "valid": [], "test": []}
+
+    for split in ["train", "valid", "test"]:
+        items = list(results[split])
+        target = targets[split]
+
+        # 이미 target 이하이면 그대로 사용
+        if len(items) <= target:
+            out[split] = items
+            continue
+
+        # 라벨별 그룹화
+        by_label: dict[int, list[dict]] = {}
+        for it in items:
+            lbl = it["label"]
+            by_label.setdefault(lbl, []).append(it)
+
+        labels = sorted(by_label.keys())
+
+        # binary label일 때: 라벨 균형 유지하며 target 개수만큼 샘플링
+        if len(labels) == 2 and 0 in by_label and 1 in by_label:
+            zeros = by_label[0]
+            ones = by_label[1]
+
+            rng.shuffle(zeros)
+            rng.shuffle(ones)
+
+            # 타겟을 반반 나누되, 한 클래스가 부족하면 다른 쪽에서 보충
+            half = target // 2
+            rem = target - 2 * half  # 0 또는 1
+
+            take0 = min(len(zeros), half + rem)
+            take1 = min(len(ones), target - take0)
+
+            # 한쪽이 부족하면 남는 쪽에서 추가 확보
+            if take0 + take1 < target:
+                # zeros에서 더 뽑을 수 있으면 먼저 시도
+                extra0 = min(len(zeros) - take0, target - (take0 + take1))
+                take0 += max(extra0, 0)
+
+            if take0 + take1 < target:
+                # 그래도 모자라면 ones에서 추가
+                extra1 = min(len(ones) - take1, target - (take0 + take1))
+                take1 += max(extra1, 0)
+
+            selected = zeros[:take0] + ones[:take1]
+            rng.shuffle(selected)
+            out[split] = selected
+
+        else:
+            # 라벨 종류가 2개가 아닌 경우: 그냥 랜덤으로 target 개수 자르기
+            rng.shuffle(items)
+            out[split] = items[:target]
+
+    return out
 
 def find_dataset(dataset_name: str):
     dataset_dir = Path(DATASET_DIR)
@@ -793,13 +885,22 @@ def match_label_counts(results, seed: int):
 
 def do_check_count(results):
     print(f"DO_MODE: {DO_MODE} (Only showing split counts)")
+
+    print("== Raw counts ==")
     for split in ["train", "valid", "test"]:
         print(f"{split}: {len(results[split])} samples")
 
     if COUNT_MATCHING:
         results = match_label_counts(results, seed=SEED)
+        print("== After Count Matching ==")
         for split in ["train", "valid", "test"]:
-            print(f"[After Count Matching] {split}: {len(results[split])} samples")
+            print(f"{split}: {len(results[split])} samples")
+
+    if MAX_TRAIN_SAMPLES is not None:
+        results = limit_max_samples(results, MAX_TRAIN_SAMPLES, seed=SEED)
+        print(f"== After MAX_TRAIN_SAMPLES={MAX_TRAIN_SAMPLES} with 8:1:1 ratio ==")
+        for split in ["train", "valid", "test"]:
+            print(f"{split}: {len(results[split])} samples")
 
 
 def do_process_data(results, output_path: Path):
@@ -808,10 +909,14 @@ def do_process_data(results, output_path: Path):
     if COUNT_MATCHING:
         results = match_label_counts(results, seed=SEED)
 
+    if MAX_TRAIN_SAMPLES is not None:
+        results = limit_max_samples(results, MAX_TRAIN_SAMPLES, seed=SEED)
+
     output_path.mkdir(parents=True, exist_ok=True)
     save_jsonl(results, output_path)
     print(f"Saved processed data to: {output_path}")
 
+    # 라벨 분포도 "최종 결과" 기준으로 그림
     output_path = Path(OUT_DIR) / SELECT_DATA.name
     draw_label_distribution(results, output_path)
 

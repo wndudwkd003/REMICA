@@ -1,8 +1,8 @@
 # utils/prompt_utils.py
 
-from typing import List
-from config.config import DatasetEnum
 import json
+
+from config.config import DatasetEnum
 
 _STAGE1_SYSTEM = """You are a rater who judges whether a text is appropriate or inappropriate.
 
@@ -15,20 +15,31 @@ Instructions:
 Critical output rules:
 - Output ONLY a single JSON object (no markdown, no code fences, no extra text).
 - The JSON must be valid and complete in one line.
-- Use exactly these keys: pred_label, confidence, rationale
-- pred_label: 0 or 1   (0=appropriate, 1=inappropriate)
-- confidence: float in [0.0, 1.0]
+- Use exactly two keys: pred_label, rationale
+- pred_label: 0 or 1 (0=appropriate, 1=inappropriate)
 - rationale: one short sentence
 - IMPORTANT: rationale must NOT contain any quote characters (no " and no ').
 """
 
 
+def label_to_str(label: int):
+    return "appropriate" if label == 0 else "inappropriate"
+
 def build_rem_stage1_prompt(
     text: str,
-    ds: DatasetEnum,
-    similar_texts: List[str],
+    similar_texts: list[dict],
 ) -> str:
-    sims = "\n".join([f"{i+1}. {t}" for i, t in enumerate(similar_texts)])
+
+    sim_block_lines = []
+
+    for i, ex in enumerate(similar_texts, start=1):
+        ex_text = ex["text"]
+        ex_label = ex["label"]
+        ex_label_str = label_to_str(ex_label)
+
+        sim_block_lines.append(f"{i}. {ex_text}, Label: {ex_label_str}")
+
+    sim_block = "\n".join(sim_block_lines)
 
     return f"""{_STAGE1_SYSTEM}
 
@@ -36,7 +47,7 @@ TEXT:
 {text}
 
 SIMILAR TEXTS (reference only):
-{sims}
+{sim_block}
 """
 
 
