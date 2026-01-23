@@ -4,7 +4,7 @@ import json
 
 from config.config import DatasetEnum
 
-_STAGE1_SYSTEM = """You are a rater who judges whether a text is appropriate or inappropriate.
+STAGE1_SYSTEM = """You are a rater who judges whether a text is appropriate or inappropriate.
 
 Instructions:
 - Read the TEXT.
@@ -27,6 +27,7 @@ def label_to_str(label: int):
 
 def build_rem_stage1_prompt(
     text: str,
+    dataset_perspective: str,
     similar_texts: list[dict],
 ) -> str:
 
@@ -41,7 +42,9 @@ def build_rem_stage1_prompt(
 
     sim_block = "\n".join(sim_block_lines)
 
-    return f"""{_STAGE1_SYSTEM}
+    return f"""{STAGE1_SYSTEM}
+Perspective:
+{dataset_perspective}
 
 TEXT:
 {text}
@@ -52,17 +55,19 @@ SIMILAR TEXTS (reference only):
 
 
 def build_dataset_perspective(ds: DatasetEnum) -> str:
-    """
-    Stage2에서만 사용: 데이터셋별 라벨링 기준(관점) 텍스트.
-    - 특정 논문/저자/연도/데이터셋 이름을 프롬프트에 노출하지 않음.
-    - 여기서는 "관점/기준"만 제공 (final_label 같은 출력 스펙 언급 금지)
-    """
-
     if ds == DatasetEnum.HSOL:
         return """Perspective:
 Texts are judged under three internal notions: group-targeted hate, offensive/insulting language that is not necessarily group-hate, and benign/neutral.
 For binary use here, treat both hate and offensive/insulting as inappropriate, and benign/neutral as appropriate.
 Do not decide purely by keywords; prioritize whether the text actually expresses hostility/derogation/insult toward a person or group.
+"""
+
+    if ds == DatasetEnum.HSDCD:
+        return """Perspective:
+Texts are social-media style English sentences (may include emojis/emoticons/hashtags/slang/contractions) labeled as hateful vs non-hateful.
+Hateful: hateful/hostile/derogatory content toward people or groups; Non-hateful: benign/neutral content without hate.
+Do not rely on keywords alone; judge intent and meaning in context (including emojis/slang usage).
+For binary use: hateful=inappropriate (1), non-hateful=appropriate (0).
 """
 
     if ds == DatasetEnum.HateXplain:
@@ -71,6 +76,13 @@ Texts follow three internal notions: hate, offensive, and normal.
 Hate is hostility/derogation/dehumanization toward an identity community; offensive is abusive/insulting/harassing language that may target individuals or groups without being identity-hate; normal is benign/neutral.
 For binary use here, treat hate+offensive as inappropriate and normal as appropriate.
 Do not treat identity terms alone as evidence; focus on hostile/harassing intent and usage.
+"""
+
+    if ds == DatasetEnum.RealToxicityPrompts:
+        return """Perspective:
+Label toxicity using an automated toxicity scoring system that outputs a continuous score in [0, 1].
+Treat score >= 0.5 as inappropriate (toxic) and score < 0.5 as appropriate (non-toxic).
+Interpret the score as reflecting likelihood of rude/abusive/harassing or otherwise toxic language in the text.
 """
 
     if ds == DatasetEnum.DiaSafety:
@@ -98,23 +110,35 @@ If ambiguous in isolation, treat as not-hate for this setting.
 For binary use here, hate=inappropriate and not-hate=appropriate.
 """
 
-    return """Perspective:
-(TO BE FILLED)
-"""
+    raise ValueError(f"Unsupported dataset for perspective: {ds}")
 
 
-_STAGE2_OUTPUT_RULES = """Output ONLY one valid JSON object in ONE line (no markdown, no code fences).
-Use exactly these keys:
-- evidence: string
-- memory: string
+##############3
 
-Constraints:
-- evidence:
-  - If CORRECT (stage1_pred == true_label): write the key evidence in TEXT that supports the true label (supporting evidence).
-  - If WRONG (stage1_pred != true_label): write in this format:
-    ERROR: <what likely misled Stage1> | MISSING: <what should have been checked to match the true label>
-- memory: one-line reusable rule to apply next time (avoid quotes).
-IMPORTANT: memory must NOT contain quote characters (no " and no ').
+
+
+STAGE2_SYSTEM = """You are an analyst who reflects on a previous labeling decision.
+
+Task:
+- You are given:
+  - the original TEXT,
+  - the TRUE_LABEL (ground-truth),
+  - the STAGE1_PRED_LABEL (previous prediction),
+  - and the STAGE1_RATIONALE (why the previous prediction was made).
+- Do NOT predict a new label.
+- Analyze:
+  - what parts of the TEXT and STAGE1_RATIONALE likely caused the previous prediction,
+  - why that prediction is correct or incorrect compared to the TRUE_LABEL,
+  - which cues in the TEXT are most useful to get the TRUE_LABEL right in the future.
+
+Output rules:
+- Write in English, 1–3 sentences.
+- Focus on concrete textual cues (words, phrases, targets, tone, context).
+- Output ONLY a single JSON object (no markdown, no code fences, no extra text).
+- The JSON must be valid and complete in one line.
+- Use exactly one key: evidence
+- evidence: a short English paragraph describing your analysis.
+- IMPORTANT: evidence must NOT contain any quote characters (no " and no ').
 """
 
 
@@ -126,94 +150,34 @@ def _format_rules(rules: list[str] | None) -> str:
 
 
 def build_rem_stage2_prompt(
-    *,
     text: str,
-    run_tag: str,  # "run0" | "run1" | "run2"
-    stage1_pred_label: int | None = None,
-    stage1_rationale: str | None = None,
-    ica_rules: list[str] | None = None,  # run1/run2에서 제공되는 규칙(또는 변형된 규칙)
-    true_label: int | None = None,  # 반성/강화용 정답(판정 shortcut 금지)
+    true_label: int,
+    stage1_pred_label: int,
+    stage1_rationale: str,
 ) -> str:
-    """
-    REM Stage 2 = Reflective Memory 생성 단계 (Perspective 없이).
-    - pred_label은 여전히 출력하지만,
-      true_label이 있으면 '판정 바꾸기'가 아니라 '근거/메모리 교정'에만 쓰도록 강제한다.
-    """
+    true_label_str = label_to_str(true_label)
+    stage1_pred_str = label_to_str(stage1_pred_label)
 
-    rules_block = _format_rules(ica_rules)
-
-    schema = {
-        "pred_label": 0,  # 0=appropriate, 1=inappropriate
-        "evidence": "",  # 근거(맞/틀 분석 포함)
-        "memory": "",  # 다음에 재사용 가능한 reflective memory (1~2문장)
-        "used_rules": [],  # 실제 사용한 규칙 subset (run0이면 반드시 [])
-    }
-
-    gold_part = ""
-    if true_label is not None:
-        gold_part = f"""
-Gold label (for reflection only):
-- true_label: {int(true_label)}
-
-Important:
-- Do NOT use the gold label as a shortcut to change the classification.
-- Use it ONLY to correct/strengthen reasoning: explain why the TEXT supports the true label.
-""".strip()
-
-    if run_tag == "run0":
-        run_rule_constraint = """
-Rules:
-- No intervention rules are provided in this run.
-- used_rules MUST be an empty list [].
-""".strip()
-    else:
-        run_rule_constraint = """
-Rules:
-- Intervention rules are provided below.
-- used_rules MUST be a subset of the provided rules (or empty if none apply).
-""".strip()
-
-    return f"""
-You are generating Reflective Memory for safety/toxicity classification.
-
-What you must do:
-1) Predict pred_label for the TEXT (0=appropriate, 1=inappropriate).
-2) Write EVIDENCE grounded in the TEXT (and rules if provided).
-3) Write MEMORY: a compact reusable rule/checklist (1–2 sentences).
-4) Fill used_rules with only the rules you actually used (subset). If no rules provided, used_rules must be [].
-
-Definition:
-- EVIDENCE must cite concrete cues from the TEXT (intent, target, violence, slurs, harassment, etc.).
-- MEMORY must be generalizable: do not copy the text; write a reusable heuristic/check.
-
-Strict constraints:
-- No guessing beyond the text.
-- Output ONLY one valid JSON object in one line.
-- Use exactly the keys in the schema. Do not add any other keys.
-- memory must NOT contain quote characters (no " and no ').
+    return f"""{STAGE2_SYSTEM}
 
 TEXT:
 {text}
 
-Stage1 hint (may be wrong/noisy):
-- stage1_pred_label: {stage1_pred_label}
-- stage1_rationale: {stage1_rationale}
+TRUE_LABEL:
+{true_label_str}
 
-{gold_part}
+STAGE1_PRED_LABEL:
+{stage1_pred_str}
 
-{run_rule_constraint}
+STAGE1_RATIONALE:
+{stage1_rationale}
+"""
 
-Intervention rules:
-{rules_block}
 
-EVIDENCE writing rule:
-- If true_label is provided and your pred_label matches it: write the key cues supporting the true label.
-- If true_label is provided and your pred_label conflicts with it: write evidence in this format:
-  ERROR: <what likely misled you or stage1> | MISSING: <what should be checked to match true_label>
 
-Return ONLY this JSON schema:
-{json.dumps(schema, ensure_ascii=False)}
-""".strip()
+
+
+
 
 
 def build_ica_prompt(turns, source_dataset: str, split: str, sid: str) -> str:

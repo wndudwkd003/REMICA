@@ -50,41 +50,17 @@ def init_stage2_schema(conn: sqlite3.Connection):
         f"""
         CREATE TABLE IF NOT EXISTS {table} (
             {DB.ID.value} TEXT PRIMARY KEY,
-
-            {DB.TRUE_LABEL.value} INTEGER NOT NULL,
-            {DB.PRED_LABEL.value} INTEGER NOT NULL,
             {DB.IS_CORRECT.value} INTEGER NOT NULL,
-
             {DB.EVIDENCE.value} TEXT,
-            {DB.MEMORY.value} TEXT,
-            {DB.RELIABILITY.value} REAL,
-            {DB.RUNS_JSON.value} TEXT,
-
             {DB.RAW_JSON.value} TEXT,
             {DB.CREATED_AT.value} TEXT NOT NULL
         )
         """
     )
 
-    # 2) 이미 존재하는 옛 테이블이면(컬럼 부족) ALTER로 보강
-    _ensure_column(conn, table, DB.EVIDENCE.value, f"{DB.EVIDENCE.value} TEXT")
-    _ensure_column(conn, table, DB.MEMORY.value, f"{DB.MEMORY.value} TEXT")
-    _ensure_column(conn, table, DB.RELIABILITY.value, f"{DB.RELIABILITY.value} REAL")
-    _ensure_column(conn, table, DB.RUNS_JSON.value, f"{DB.RUNS_JSON.value} TEXT")
-    _ensure_column(conn, table, DB.RAW_JSON.value, f"{DB.RAW_JSON.value} TEXT")
-    _ensure_column(conn, table, DB.CREATED_AT.value, f"{DB.CREATED_AT.value} TEXT")
-
-    # 3) 인덱스 생성 (컬럼이 보장된 뒤 생성)
     conn.execute(
         f"CREATE INDEX IF NOT EXISTS {table}_iscorrect ON {table} ({DB.IS_CORRECT.value});"
     )
-    conn.execute(
-        f"CREATE INDEX IF NOT EXISTS {table}_pred ON {table} ({DB.PRED_LABEL.value});"
-    )
-    conn.execute(
-        f"CREATE INDEX IF NOT EXISTS {table}_reliability ON {table} ({DB.RELIABILITY.value});"
-    )
-
     conn.commit()
 
 
@@ -94,9 +70,6 @@ def init_ica_schema(conn: sqlite3.Connection):
         f"""
         CREATE TABLE IF NOT EXISTS {table} (
             {DB.ID.value} TEXT PRIMARY KEY,
-
-            {DB.SOURCE_DATASET.value} TEXT NOT NULL,
-            {DB.SPLIT.value} TEXT NOT NULL,
 
             {DB.SOURCE_CID.value} TEXT NOT NULL,
             {DB.SOURCE_FILE.value} TEXT NOT NULL,
@@ -187,34 +160,21 @@ def upsert_stage2(
     conn: sqlite3.Connection,
     *,
     sid: str,
-    true_label: int,
-    pred_label: int,
     is_correct: int,
     evidence: str,
-    memory: str,
-    reliability: float,
-    runs_json: str,
     raw_json: str,
 ):
     table = DB.REM_STAGE_2.value
     conn.execute(
         f"""
         INSERT OR REPLACE INTO {table}
-        ({DB.ID.value}, {DB.TRUE_LABEL.value}, {DB.PRED_LABEL.value},
-         {DB.IS_CORRECT.value}, {DB.EVIDENCE.value}, {DB.MEMORY.value},
-         {DB.RELIABILITY.value}, {DB.RUNS_JSON.value},
-         {DB.RAW_JSON.value}, {DB.CREATED_AT.value})
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ({DB.ID.value}, {DB.IS_CORRECT.value}, {DB.EVIDENCE.value}, {DB.RAW_JSON.value}, {DB.CREATED_AT.value})
+        VALUES (?, ?, ?, ?, ?)
         """,
         (
             sid,
-            int(true_label),
-            int(pred_label),
             int(is_correct),
             evidence,
-            memory,
-            float(reliability),
-            runs_json,
             raw_json,
             datetime.utcnow().isoformat(),
         ),

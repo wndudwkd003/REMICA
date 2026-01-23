@@ -1,4 +1,4 @@
-# worker/rem_stag1.py
+# worker/rem_stage1.py
 
 from __future__ import annotations
 
@@ -11,11 +11,11 @@ from tqdm.auto import tqdm
 
 from config.config import REM_STEP_1_DATASET, Config
 from params.db_value import DB
+from utils.client_utils import GPTClient, RemStage1Out
 from utils.cuda_utils import split_workers
 from utils.data_utils import JsonlDataset
 from utils.db_utils import exists, init_stage1_schema, open_db, upsert_stage1
-from utils.gpt_client_stage1 import GPTClient
-from utils.prompt_utils import build_rem_stage1_prompt
+from utils.prompt_utils import build_dataset_perspective, build_rem_stage1_prompt
 from utils.retriever import SimilarTextRetriever
 
 # ---- 워커 프로세스에 1번만 만들 전역 객체 ----
@@ -26,10 +26,13 @@ G_RETRIEVER = None
 def init_worker(gpu_id, config: Config):
     global G_CLIENT, G_RETRIEVER
 
-    G_CLIENT = GPTClient(
+    G_CLIENT = GPTClient[RemStage1Out](
         model=config.gpt_model,
         max_output_tokens=config.gpt_max_output_tokens,
         max_retries=config.max_retries,
+        top_p=config.gpt_top_p,
+        temperature=config.gpt_temperature,
+        schema=RemStage1Out,
     )
     G_RETRIEVER = SimilarTextRetriever(config, device=f"cuda:{gpu_id}")
 
@@ -39,6 +42,8 @@ def stage_1_job(job, config: Config):
 
     ds, sid, text, label = job
     try:
+        ds_perspective = build_dataset_perspective(ds)
+
         sim_examples = G_RETRIEVER.get_similar_texts(
             ds=ds,                 # DatasetEnum 그대로 넘겨도 됩니다
             label=label,
@@ -47,7 +52,8 @@ def stage_1_job(job, config: Config):
             top_k=config.rem_1_top_k,
         )
 
-        prompt = build_rem_stage1_prompt(text, sim_examples)
+
+        prompt = build_rem_stage1_prompt(text, ds_perspective, sim_examples)
         out = G_CLIENT.call_api(prompt)
 
         pred_label = out["pred_label"]

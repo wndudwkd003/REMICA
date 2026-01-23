@@ -25,10 +25,6 @@ class DB(Enum):
     RELIABILITY = "reliability"
     RUNS_JSON = "runs_json"
 
-    # ica cols (핵심 메타)
-    SOURCE_DATASET = "source_dataset"
-    SPLIT = "split"
-
     # ---- 원본 샘플 역추적 포인터 ----
     SOURCE_CID = "source_cid"
     SOURCE_FILE = "source_file"

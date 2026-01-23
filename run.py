@@ -8,8 +8,8 @@ from utils.db_utils import open_db
 from utils.seeds_utils import set_seeds
 from worker.gpt_infer import run_gpt_infer
 from worker.ica_stage import run_ica
-from worker.rem_stag1 import run_rem_stage1
-from worker.rem_stag2 import run_rem_stage2
+from worker.rem_stage1 import run_rem_stage1
+from worker.rem_stage2 import run_rem_stage2
 from worker.trainer import test, train
 
 

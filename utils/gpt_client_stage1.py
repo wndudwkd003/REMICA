@@ -1,5 +1,4 @@
 # utils/gpt_client.py
-from __future__ import annotations
 
 import json
 import time
@@ -11,8 +10,7 @@ from pydantic import BaseModel, Field
 
 class RemStage1Out(BaseModel):
     pred_label: int = Field(..., description="0=appropriate, 1=inappropriate")
-    confidence: float = Field(..., ge=0.0, le=1.0)
-    rationale: str
+    rationale: str = Field(..., description="설명")
 
 
 def _extract_json_obj(raw: str) -> str:
@@ -41,20 +39,25 @@ class GPTClient:
         max_output_tokens: int,
         max_retries: int = 3,
         retry_sleep: float = 0.5,
+        top_p: float = 1.0,
+        temperature: float = 0.0,
     ):
         self.model = model
-        self.max_output_tokens = int(max_output_tokens)
-        self.max_retries = int(max_retries)
-        self.retry_sleep = float(retry_sleep)
+        self.max_output_tokens = max_output_tokens
+        self.max_retries = max_retries
+        self.retry_sleep = retry_sleep
+        self.top_p = top_p
+        self.temperature = temperature
         self.client = OpenAI()
 
     def _call_parse(self, prompt: str) -> Dict[str, Any]:
-        # Structured parse (성공하면 가장 깔끔)
         resp = self.client.responses.parse(
             model=self.model,
             input=[{"role": "user", "content": prompt}],
             max_output_tokens=self.max_output_tokens,
             text_format=RemStage1Out,
+            temperature=self.temperature,
+            top_p=self.top_p,
         )
         out = resp.output_parsed
         if out is None:

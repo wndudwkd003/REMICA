@@ -7,11 +7,10 @@ from pathlib import Path
 
 from tqdm.auto import tqdm
 
-from config.config import Config, ContextDatasetEnum, ICA_STEP_DATASET
-from utils.db_utils import open_db, init_ica_schema, exists, upsert_ica
+from config.config import ICA_STEP_DATASET, Config, ContextDatasetEnum
+from utils.db_utils import exists, init_ica_schema, open_db, upsert_ica
 from utils.gpt_client_ica import GPTClientICA
 from utils.prompt_utils import build_ica_prompt
-
 
 _G_CLIENT = None
 
@@ -228,8 +227,7 @@ def run_ica(config: Config):
             (
                 ok,
                 sid,
-                source_dataset,
-                split,
+
                 conversation_label,
                 context_summary,
                 triggers_json,
