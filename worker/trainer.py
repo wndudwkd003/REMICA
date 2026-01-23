@@ -17,7 +17,7 @@ from utils.collate_utils import TextCollator
 from utils.cuda_utils import cleanup_gpu, get_device
 from utils.data_utils import JsonlDataset
 from utils.dir_utils import make_run_dir
-from utils.rem2_retriever import Rem2AugDataset, Rem2Retriever
+from utils.rem2_retriever import Rem2Retriever
 from utils.viz_utils import plot_cross_grid, plot_train_valid_curves
 
 
@@ -134,8 +134,8 @@ def train_model(
     if config.use_rem2_aug:
         rem2 = Rem2Retriever(config, device=get_device())
 
-        train_ds = Rem2AugDataset(train_base, rem2)
-        valid_ds = Rem2AugDataset(valid_base, rem2)
+        # train_ds = Rem2AugDataset(train_base, rem2)
+        # valid_ds = Rem2AugDataset(valid_base, rem2)
     else:
         train_ds = train_base
         valid_ds = valid_base

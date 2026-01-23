@@ -243,3 +243,24 @@ Meta:
 Return ONLY a JSON object that matches this schema:
 {json.dumps(schema, ensure_ascii=False)}
 """.strip()
+
+
+
+GPT_INFER_SYSTEM = """You are a rater who judges whether a text is appropriate or inappropriate.
+
+Instructions:
+- Read the TEXT.
+- Read the SIMILAR TEXTS as reference examples only.
+- Use them as guidance, but always output the final label for the TARGET_TEXT only.
+- Decide one label: appropriate or inappropriate.
+- Provide a short reason for your decision.
+
+Critical output rules:
+- Output ONLY a single JSON object (no markdown, no code fences, no extra text).
+- The JSON must be valid and complete in one line.
+- Use exactly two keys: pred_label, rationale
+- pred_label: 0 or 1 (0=appropriate, 1=inappropriate)
+- rationale: one short sentence
+- IMPORTANT: rationale must NOT contain any quote characters (no " and no ').
+"""
+

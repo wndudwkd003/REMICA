@@ -1,12 +1,11 @@
 # utils/viz_utils.py
 
-
 from pathlib import Path
-from typing import Optional, List
+from typing import List, Optional
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 
 
 def plot_cross_grid(
@@ -46,7 +45,7 @@ def plot_cross_grid(
 
     # 그림
     fig, ax = plt.subplots(figsize=(1.2 * max(len(cols), 5), 1.0 * max(len(rows), 4)))
-    im = ax.imshow(values, aspect="auto")  # colormap은 기본값 사용(색 지정 금지)
+    im = ax.imshow(values, aspect="auto")  # colormap 기본값 사용
 
     # 축 레이블
     ax.set_xticks(np.arange(len(cols)))
@@ -114,3 +113,37 @@ def plot_train_valid_curves(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(out_path, dpi=200)
     plt.close()
+
+
+def plot_1xN_grid(
+    values: List[float],
+    col_names: List[str],
+    out_path: Path | str,
+    title: str,
+    fmt: str = ".3f",
+):
+    """
+    1 x N 형태의 heatmap (GPT vs 여러 test dataset) 그릴 때 사용.
+    (gpt_infer 전용이었는데, 여기로 뺀 버전)
+    """
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    data = np.asarray(values, dtype=np.float32).reshape(1, -1)
+    fig = plt.figure(figsize=(max(8, len(col_names) * 1.1), 2.2))
+    ax = plt.gca()
+    ax.imshow(data, aspect="auto")  # 색상 지정 X
+
+    ax.set_title(title)
+    ax.set_yticks([0])
+    ax.set_yticklabels(["GPT"])
+    ax.set_xticks(range(len(col_names)))
+    ax.set_xticklabels(col_names, rotation=45, ha="right")
+
+    for j, v in enumerate(values):
+        s = f"{v:{fmt}}" if v is not None else "NA"
+        ax.text(j, 0, s, ha="center", va="center", color="black")
+
+    plt.tight_layout()
+    fig.savefig(out_path, dpi=200)
+    plt.close(fig)

@@ -20,6 +20,14 @@ class RemStage1Out(BaseModel):
 class RemStage2Out(BaseModel):
     evidence: str = Field(...)
 
+class GPTInferOut(BaseModel):
+    pred_label: int = Field(..., description="0 or 1")
+    rationale: str = Field(
+        ..., description="Optional short rationale; may be empty string"
+    )
+
+
+
 # ------------------------
 # 공용 유틸
 # ------------------------

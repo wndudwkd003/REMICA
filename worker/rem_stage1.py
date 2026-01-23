@@ -45,8 +45,7 @@ def stage_1_job(job, config: Config):
         ds_perspective = build_dataset_perspective(ds)
 
         sim_examples = G_RETRIEVER.get_similar_texts(
-            ds=ds,                 # DatasetEnum 그대로 넘겨도 됩니다
-            label=label,
+            ds=ds,
             query_sid=sid,
             query_text=text,
             top_k=config.rem_1_top_k,

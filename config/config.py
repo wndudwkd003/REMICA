@@ -77,9 +77,11 @@ class Config:
     dataset_order: list[tuple[DatasetEnum, int]] = field(
         default_factory=lambda: DATASET_ORDER
     )
+    # config.Config 안에
+    gpt_infer_mode: str = "rem12" # plain | rem1 | rem12
 
     do_mode: str | None = (
-        "REM_Stage_2"  # REM_Stage_1 | REM_Stage_2 | ICA | GPT_INFER | check | None
+        "GPT_INFER"  # REM_Stage_1 | REM_Stage_2 | ICA | GPT_INFER | check | None
     )
     api_json_path: str = "config/api.json"
     rem_step1_datasets: list[DatasetEnum] = field(
