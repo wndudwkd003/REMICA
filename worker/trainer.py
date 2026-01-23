@@ -1,90 +1,24 @@
 # worker/trainer.py
 
 
-import gc
 import json
-from dataclasses import asdict, is_dataclass
-from datetime import datetime
 from pathlib import Path
-import matplotlib.pyplot as plt
 
-from tqdm.auto import tqdm
-import shutil
-from config.config import Config, DatasetEnum
 import pandas as pd
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
+from torch.utils.data import ConcatDataset, DataLoader
+from tqdm.auto import tqdm
 from transformers import get_linear_schedule_with_warmup
 
-from utils.data_utils import JsonlDataset
-from utils.collate_utils import TextCollator
+from config.config import Config, DatasetEnum
 from core.build_model import build_model
-from utils.viz_utils import plot_cross_grid
-from utils.viz_utils import plot_train_valid_curves
-
-
-def is_done_dataset(run_dir: Path, ds: DatasetEnum) -> bool:
-    save_dir = run_dir / "save" / ds.name
-    required = [
-        "best.pt",
-        "meta.json",
-        "train_valid_history.csv",
-        "train_valid_loss.png",
-        "train_valid_acc.png",
-    ]
-    return all((save_dir / fn).exists() for fn in required)
-
-
-def backup_partial_save_dir_if_exists(run_dir: Path, ds: DatasetEnum):
-    """
-    완료가 아닌데(save/<ds>) 폴더가 이미 존재하면, 덮어쓰기 방지를 위해 백업 폴더로 이동.
-    """
-    save_dir = run_dir / "save" / ds.name
-    if not save_dir.exists():
-        return
-
-    # 이미 완료(B안 기준)면 백업할 필요 없음
-    if is_done_dataset(run_dir, ds):
-        return
-
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_dir = save_dir.parent / f"{ds.name}__partial_backup_{ts}"
-    shutil.move(str(save_dir), str(backup_dir))
-    print(f"[RESUME-B] moved partial save_dir -> {backup_dir}")
-
-
-def get_device() -> torch.device:
-    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-
-def cleanup_gpu(model: nn.Module | None = None):
-    try:
-        if model is not None:
-            model.to("cpu")
-    except Exception:
-        pass
-
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-
-
-def make_run_dir(config: Config) -> Path:
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_name = f"{ts}_{config.model_name}"
-    run_dir = Path(config.run_dir) / run_name
-    run_dir.mkdir(parents=True, exist_ok=True)
-    (run_dir / "save").mkdir(parents=True, exist_ok=True)
-    (run_dir / "results").mkdir(parents=True, exist_ok=True)
-
-    cfg = asdict(config) if is_dataclass(config) else dict(config.__dict__)
-    cfg["dataset_order"] = [(ds.name, bs) for ds, bs in config.dataset_order]
-
-    with open(run_dir / "config.json", "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
-
-    return run_dir
+from utils.collate_utils import TextCollator
+from utils.cuda_utils import cleanup_gpu, get_device
+from utils.data_utils import JsonlDataset
+from utils.dir_utils import make_run_dir
+from utils.rem2_retriever import Rem2AugDataset, Rem2Retriever
+from utils.viz_utils import plot_cross_grid, plot_train_valid_curves
 
 
 def dataset_paths(config: Config, dataset: DatasetEnum):
@@ -101,7 +35,6 @@ def run_epoch(
     loader: DataLoader,
     device: torch.device,
     loss_fn: nn.Module,
-    *,
     train: bool,
     optimizer: torch.optim.Optimizer | None = None,
     scheduler=None,
@@ -164,10 +97,81 @@ def run_epoch(
 
 
 def train_model(
-    config: Config, run_dir: Path, train_dataset: "DatasetEnum", batch_size: int
+    config: Config,
+    run_dir: Path,
+    dataset_name: str,
+    batch_size: int = 0,
+    dataset_sum_mode: bool = False,
 ) -> Path:
+
+    if dataset_sum_mode:
+        train_datasets = []
+        valid_datasets = []
+
+        for ds, _ in config.dataset_order:
+            paths = dataset_paths(config, ds)
+            train_datasets.append(
+                JsonlDataset(str(paths["train"]), config.meta_to_text)
+            )
+            valid_datasets.append(
+                JsonlDataset(str(paths["valid"]), config.meta_to_text)
+            )
+
+        train_base = ConcatDataset(train_datasets)
+        valid_base = ConcatDataset(valid_datasets)
+
+        batch_size = config.dataset_sum_batch_size # 합산 모드 배치 사이즈
+
+
+    else:
+        paths = dataset_paths(config, DatasetEnum[dataset_name])
+        train_base = JsonlDataset(str(paths["train"]), config.meta_to_text)
+        valid_base = JsonlDataset(str(paths["valid"]), config.meta_to_text)
+
+    # --
+
+    rem2 = None
+    if config.use_rem2_aug:
+        rem2 = Rem2Retriever(config, device=get_device())
+
+        train_ds = Rem2AugDataset(train_base, rem2)
+        valid_ds = Rem2AugDataset(valid_base, rem2)
+    else:
+        train_ds = train_base
+        valid_ds = valid_base
+
+    try:
+        best_path = train_once(
+            config=config,
+            run_dir=run_dir,
+            save_name=dataset_name,
+            train_ds=train_ds,
+            valid_ds=valid_ds,
+            batch_size=batch_size,
+            desc_tag=dataset_name,
+        )
+        return best_path
+    finally:
+        if rem2 is not None:
+            rem2.close()
+
+
+def test_cross(
+    config: Config,
+    ckpt_path: Path,
+    dataset_name: str
+) -> dict:
+
+    meta_path = ckpt_path.parent / "meta.json"
+    with open(meta_path, "r", encoding="utf-8") as f:
+        meta = json.load(f)
+    hidden_dim = meta["hidden_dim"]
+
+    model = build_model(config, hidden_dim=hidden_dim, num_labels=2)
+    state_dict = torch.load(ckpt_path, map_location="cpu")
+    model.load_state_dict(state_dict, strict=True)
     device = get_device()
-    paths = dataset_paths(config, train_dataset)
+    model.to(device)
 
     collate = TextCollator(
         model_id=config.model_id,
@@ -175,8 +179,73 @@ def train_model(
         trust_remote_code=True,
     )
 
-    train_ds = JsonlDataset(str(paths["train"]), meta_to_text=config.meta_to_text)
-    valid_ds = JsonlDataset(str(paths["valid"]), meta_to_text=config.meta_to_text)
+    loss_fn = nn.CrossEntropyLoss()
+    out = {}
+
+    rem2 = None
+    if config.use_rem2_aug:
+        rem2 = Rem2Retriever(config, device=device)
+
+    ds_pbar = tqdm(config.dataset_order, desc=f"cross-test({dataset_name})")
+    try:
+        for test_dataset, bs in ds_pbar:
+
+            paths = dataset_paths(config, test_dataset)
+            test_base = JsonlDataset(str(paths["test"]), config.meta_to_text)
+
+            if rem2:
+                test_ds = Rem2AugDataset(test_base, rem2)
+            else:
+                test_ds = test_base
+
+            test_loader = DataLoader(
+                test_ds,
+                batch_size=bs,
+                shuffle=False,
+                num_workers=config.num_workers,
+                collate_fn=collate,
+            )
+
+            m = run_epoch(
+                model,
+                test_loader,
+                device,
+                loss_fn,
+                train=False,
+                model_id=config.model_id,
+                desc=f"test {test_dataset.name}",
+            )
+
+            out[test_dataset.name] = m
+            ds_pbar.set_postfix(acc=f"{m['acc']:.4f}", loss=f"{m['loss']:.4f}")
+
+    finally:
+        if rem2 is not None:
+            rem2.close()
+
+        cleanup_gpu(model)
+        del model
+
+    return out
+
+
+def train_once(
+    config: Config,
+    run_dir: Path,
+    save_name: str,
+    train_ds,
+    valid_ds,
+    batch_size: int,
+    desc_tag: str,
+) -> Path:
+
+    device = get_device()
+
+    collate = TextCollator(
+        model_id=config.model_id,
+        max_len=config.max_len,
+        trust_remote_code=True,
+    )
 
     train_loader = DataLoader(
         train_ds,
@@ -205,7 +274,7 @@ def train_model(
 
     loss_fn = nn.CrossEntropyLoss()
 
-    save_dir = run_dir / "save" / train_dataset.name
+    save_dir = run_dir / "save" / save_name
     save_dir.mkdir(parents=True, exist_ok=True)
     best_path = save_dir / "best.pt"
     meta_path = save_dir / "meta.json"
@@ -216,17 +285,13 @@ def train_model(
     bad_count = 0
     history = []
 
-    print(
-        f"\n[TRAIN] dataset={train_dataset.name} train={len(train_ds)} valid={len(valid_ds)}"
-    )
+    print(f"\n[TRAIN] dataset={desc_tag} train={len(train_ds)} valid={len(valid_ds)}")
     print(
         f"[TRAIN] early_stopping: patience={config.early_stopping_patience}, "
         f"delta={config.early_stopping_delta} (monitor=valid_loss)"
     )
 
-    epoch_pbar = tqdm(
-        range(1, config.num_epochs + 1), desc=f"epochs({train_dataset.name})"
-    )
+    epoch_pbar = tqdm(range(1, config.num_epochs + 1), desc=f"epochs({desc_tag})")
     for epoch in epoch_pbar:
         tr = run_epoch(
             model,
@@ -300,13 +365,13 @@ def train_model(
         history_csv=history_csv,
         out_path=save_dir / "train_valid_loss.png",
         metric="loss",
-        title=f"Train/Valid Loss ({train_dataset.name})",
+        title=f"Train/Valid Loss ({desc_tag})",
     )
     plot_train_valid_curves(
         history_csv=history_csv,
         out_path=save_dir / "train_valid_acc.png",
         metric="acc",
-        title=f"Train/Valid Acc ({train_dataset.name})",
+        title=f"Train/Valid Acc ({desc_tag})",
     )
 
     print(
@@ -319,81 +384,88 @@ def train_model(
     return best_path
 
 
-def test_cross(config: Config, ckpt_path: Path, train_dataset: "DatasetEnum"):
-    device = get_device()
+def train(config: Config):
+    run_dir = make_run_dir(config)
+    all_results = {}
+    print(f"[NEW RUN] run_dir: {run_dir}")
 
-    meta_path = ckpt_path.parent / "meta.json"
-    with open(meta_path, "r", encoding="utf-8") as f:
-        meta = json.load(f)
-
-    hidden_dim = meta["hidden_dim"]
-
-    model = build_model(config, hidden_dim=hidden_dim, num_labels=2)
-    state_dict = torch.load(ckpt_path, map_location="cpu")
-    model.load_state_dict(state_dict, strict=True)
-    model.to(device)
-
-    collate = TextCollator(
-        model_id=config.model_id,
-        max_len=config.max_len,
-        trust_remote_code=True,
-    )
-
-    loss_fn = nn.CrossEntropyLoss()
-    out = {}
-
-    ds_pbar = tqdm(config.dataset_order, desc=f"cross-test({train_dataset.name})")
-    for test_dataset, bs in ds_pbar:
-        paths = dataset_paths(config, test_dataset)
-        test_ds = JsonlDataset(str(paths["test"]), meta_to_text=config.meta_to_text)
-        test_loader = DataLoader(
-            test_ds,
-            batch_size=bs,
-            shuffle=False,
-            num_workers=config.num_workers,
-            collate_fn=collate,
+    if config.dataset_sum:  # 데이터 세트 합산 모드
+        sum_name = "SUM"
+        ckpt_path = train_model(
+            config, run_dir, sum_name, dataset_sum_mode=True
         )
+        cross = test_cross(config, ckpt_path, sum_name)
+        all_results[sum_name] = cross
 
-        m = run_epoch(
-            model,
-            test_loader,
-            device,
-            loss_fn,
-            train=False,
-            model_id=config.model_id,
-            desc=f"test {test_dataset.name}",
-        )
+        cleanup_gpu()
 
-        out[test_dataset.name] = m
-        ds_pbar.set_postfix(acc=f"{m['acc']:.4f}", loss=f"{m['loss']:.4f}")
+        print(f"\n[DONE-SUM] run_dir={run_dir}")
+        return run_dir
 
-    cleanup_gpu(model)
-    del model
-    return out
+    # 기존: 데이터셋별 개별 학습 모드
+    outer = tqdm(config.dataset_order, desc="train-datasets")
 
+    for dataset_enum, bs in outer:
+        ckpt_path = train_model(config, run_dir, dataset_enum.name, batch_size=bs)
+        cross = test_cross(config, ckpt_path, dataset_enum.name)
+        all_results[dataset_enum.name] = cross
 
-def load_existing_results(run_dir: Path) -> dict:
-    """
-    기존 cross_test.json이 있으면 로드해서 이어쓰기.
-    없으면 빈 dict 반환.
-    """
-    path = run_dir / "results" / "cross_test.json"
-    if path.exists():
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+        cleanup_gpu()
+
+    print(f"\n[DONE] run_dir={run_dir}")
+    return run_dir
 
 
-def write_results(run_dir: Path, config: Config, all_results: dict):
-    """
-    cross_test.json/csv 및 grid 이미지 갱신 저장
-    """
+
+def test(config: Config):
+    run_dir = Path(config.load_run_dir)
+
+    save_root = run_dir / "save"
+    assert save_root.exists(), f"save dir not found: {save_root}"
+
+    all_results = {}
+
+    # 합산 학습 모드일 때: SUM 모델 하나만 불러와서 다시 cross-test
+    if config.dataset_sum:
+        sum_name = "SUM"
+        ckpt_path = save_root / sum_name / "best.pt"
+        cross = test_cross(config, ckpt_path, sum_name)
+        all_results[sum_name] = cross
+        cleanup_gpu()
+
+        write_results(run_dir, config, all_results)
+
+        print(f"\n[DONE-SUM] loaded run_dir={run_dir}")
+        return run_dir
+
+    # ----- 기존 per-dataset 모드 -----
+    outer = tqdm(config.dataset_order, desc="retest-models")
+    for dataset_enum, _ in outer:
+        ckpt_path = save_root / dataset_enum.name / "best.pt"
+        cross = test_cross(config, ckpt_path, dataset_enum.name)
+        all_results[dataset_enum.name] = cross
+        cleanup_gpu()
+
+    write_results(run_dir, config, all_results)
+
+    print(f"\n[DONE] loaded run_dir={run_dir}")
+    return run_dir
+
+
+
+def write_results(
+    run_dir: Path,
+    config: Config,
+    all_results: dict
+):
     results_dir = run_dir / "results"
     results_dir.mkdir(parents=True, exist_ok=True)
 
+    # JSON 저장
     with open(results_dir / "cross_test.json", "w", encoding="utf-8") as f:
         json.dump(all_results, f, ensure_ascii=False, indent=2)
 
+    # CSV 저장
     rows = []
     for tr, d in all_results.items():
         for te, m in d.items():
@@ -410,8 +482,15 @@ def write_results(run_dir: Path, config: Config, all_results: dict):
     csv_path = results_dir / "cross_test.csv"
     pd.DataFrame(rows).to_csv(csv_path, index=False)
 
+    # 기본 순서: config.dataset_order의 name
     order_names = [ds.name for ds, _ in config.dataset_order]
 
+    # SUM 등 config.dataset_order에 없는 train 이름도 자동으로 뒤에 추가
+    for tr in all_results.keys():
+        if tr not in order_names:
+            order_names.append(tr)
+
+    # 플롯
     plot_cross_grid(
         csv_path=csv_path,
         out_path=results_dir / "cross_test_grid_acc.png",
@@ -428,109 +507,3 @@ def write_results(run_dir: Path, config: Config, all_results: dict):
         title="Cross-test Loss",
         fmt=".3f",
     )
-
-
-def train(config: Config):
-    resume_dir = config.resume_run_dir
-
-    if resume_dir:
-        run_dir = Path(resume_dir)
-        assert run_dir.exists(), f"resume_run_dir not found: {run_dir}"
-
-        print(f"[RESUME] using existing run_dir: {run_dir}")
-        all_results = load_existing_results(run_dir)
-
-    else:
-        run_dir = make_run_dir(config)
-        all_results = {}
-        print(f"[NEW RUN] run_dir: {run_dir}")
-
-    outer = tqdm(config.dataset_order, desc="train-datasets")
-
-    for train_dataset, bs in outer:
-        done = is_done_dataset(run_dir, train_dataset)
-
-        if done:
-            if train_dataset.name not in all_results:
-                ckpt_path = run_dir / "save" / train_dataset.name / "best.pt"
-                cross = test_cross(config, ckpt_path, train_dataset)
-                all_results[train_dataset.name] = cross
-                write_results(run_dir, config, all_results)
-
-            outer.set_postfix(skipped=train_dataset.name)
-            continue
-
-        backup_partial_save_dir_if_exists(run_dir, train_dataset)
-
-        if train_dataset.name in all_results:
-            del all_results[train_dataset.name]
-
-        ckpt_path = train_model(config, run_dir, train_dataset, batch_size=bs)
-        cross = test_cross(config, ckpt_path, train_dataset)
-        all_results[train_dataset.name] = cross
-
-        write_results(run_dir, config, all_results)
-        cleanup_gpu()
-
-    print(f"\n[DONE] run_dir={run_dir}")
-    return run_dir
-
-
-def test(config: Config):
-    run_dir = Path(config.load_run_dir)
-
-    save_root = run_dir / "save"
-    assert save_root.exists(), f"save dir not found: {save_root}"
-
-    all_results = {}
-
-    outer = tqdm(config.dataset_order, desc="retest-models")
-    for dataset, _ in outer:
-        ckpt_path = save_root / dataset.name / "best.pt"
-        cross = test_cross(config, ckpt_path, dataset)
-        all_results[dataset.name] = cross
-        cleanup_gpu()
-
-    results_dir = run_dir / "results"
-    results_dir.mkdir(parents=True, exist_ok=True)
-
-    with open(results_dir / "cross_test_retest.json", "w", encoding="utf-8") as f:
-        json.dump(all_results, f, ensure_ascii=False, indent=2)
-
-    rows = []
-    for tr, d in all_results.items():
-        for te, m in d.items():
-            rows.append(
-                {
-                    "train_dataset": tr,
-                    "test_dataset": te,
-                    "acc": m["acc"],
-                    "loss": m["loss"],
-                    "n": m["n"],
-                }
-            )
-
-    csv_path = results_dir / "cross_test_retest.csv"
-    pd.DataFrame(rows).to_csv(csv_path, index=False)
-
-    order_names = [ds.name for ds, _ in config.dataset_order]
-
-    plot_cross_grid(
-        csv_path=csv_path,
-        out_path=results_dir / "cross_test_retest_grid_acc.png",
-        metric="acc",
-        dataset_order=order_names,
-        title="Cross-test Accuracy (Retest)",
-        fmt=".3f",
-    )
-    plot_cross_grid(
-        csv_path=csv_path,
-        out_path=results_dir / "cross_test_retest_grid_loss.png",
-        metric="loss",
-        dataset_order=order_names,
-        title="Cross-test Loss (Retest)",
-        fmt=".3f",
-    )
-
-    print(f"\n[DONE] loaded run_dir={run_dir}")
-    return run_dir

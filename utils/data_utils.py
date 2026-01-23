@@ -1,9 +1,9 @@
 # utils/data_utils.py
 
-from importlib import metadata
-from torch.utils.data import Dataset, DataLoader
 
 import json
+
+from torch.utils.data import Dataset
 
 
 class JsonlDataset(Dataset):

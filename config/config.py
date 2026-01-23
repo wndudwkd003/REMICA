@@ -50,34 +50,39 @@ FAST_NOT_MODEL = [ModelEnum.DeBERTaV3.value]
 
 
 # Select the model to use for experiments!!!!!!!!!!!!!!!!
-SELECT_MODEL = ModelEnum.Longformer
+SELECT_MODEL = ModelEnum.ModernBERT
 
 
 @dataclass
 class Config:
+
+    use_rem2_aug: bool = True  # True | False
+    rem2_top_k: int = 3
+    rem2_min_reliability: float = 0.65
+    rem2_only_correct: bool = True
+    rem2_faiss_index_path: str = "rem/faiss/rem2_text_train.index"
+    rem2_faiss_meta_path: str = "rem/faiss/rem2_text_train.meta.jsonl"
+
     emb_device: str = "cuda"  # "cuda" or "cpu"
     rem_gpus: list[int] = field(default_factory=lambda: [0, 1, 2, 3])
     datasets_dir: str = "datasets_processed"
     context_datasets_dir: str = "datasets_context_processed"
 
+    dataset_sum: bool = True  # True | False
+    dataset_sum_batch_size: int = 4
     dataset_order: list[tuple[DatasetEnum, int]] = field(
         default_factory=lambda: [
+            (DatasetEnum.HSOL, 4),
+            (DatasetEnum.HateXplain, 4),
             (DatasetEnum.DiaSafety, 4),
-            (DatasetEnum.GabHate, 4),
-            (DatasetEnum.HateXplain, 2),
-            (DatasetEnum.HSOL, 2),
-            (DatasetEnum.RealToxicityPrompts, 2),
-            (DatasetEnum.OffenseEval, 2),
-            (DatasetEnum.HSD, 2),
-            (DatasetEnum.ToxiGen, 2),
-            (DatasetEnum.ToxiSpanSE, 2),
-            (DatasetEnum.ToxiCR, 2),
-            (DatasetEnum.HSDCD, 2),
-            (DatasetEnum.ISHate, 2),
+            (DatasetEnum.ToxiSpanSE, 4),
+            (DatasetEnum.HSD, 4),
         ]
     )
 
-    do_mode: str | None = "REM_Stage_2"  # REM_Stage_1 | REM_Stage_2 | ICA | check
+    do_mode: str | None = (
+        None  # REM_Stage_1 | REM_Stage_2 | ICA | GPT_INFER | check | None
+    )
     api_json_path: str = "config/api.json"
     rem_step1_datasets: list[DatasetEnum] = field(
         default_factory=lambda: REM_STEP_1_DATASET
@@ -88,14 +93,14 @@ class Config:
     rem_split: str = "train"
     remica_db_path: str = "rem/remica.sqlite3"
     rem_worker: int = 12
-    resume_run_dir: str | None = "runs/20260114_144422_Longformer"
 
     # GPT 관련
     gpt_model: str = (
         "gpt-4.1-2025-04-14"  # "gpt-5-mini-2025-08-07" # gpt-5.2-2025-12-11 # gpt-5-mini-2025-08-07 # gpt-4.1-2025-04-14
     )
     gpt_temperature: float = 0.0
-    gpt_max_output_tokens: int = 512
+    gpt_top_p: float = 1.0
+    gpt_max_output_tokens: int = 2048
     gpt_concurrency: int = 8
     max_retries: int = 5
 
@@ -107,7 +112,8 @@ class Config:
     load_run_dir: str | None = None  # test에서 특정 run 폴더를 지정하고 싶으면 사용
 
     seed: int = 42
-    max_len: int = 2048
+
+    max_len: int = 4096
     num_epochs: int = 200
     lr: float = 2e-5
     weight_decay: float = 0.01
