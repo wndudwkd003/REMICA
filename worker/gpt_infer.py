@@ -74,6 +74,8 @@ TARGET_TEXT:
 # mode별 Dataset 래핑
 # =========================================================
 
+# build_dataset_object 쪽
+
 def build_dataset_object(
     config: Config,
     ds: DatasetEnum,
@@ -89,15 +91,18 @@ def build_dataset_object(
     if mode == "plain":
         return base
 
-    assert retriever is not None, "mode rem1/rem12 에서는 retriever 가 필요합니다."
+    assert retriever is not None
     top_k = config.rem2_top_k
+
+    # 여기서도 레지스트리 리스트 하나만 넘김
+    pairs = [(ds, base)]
     return Rem2ExampleAugDataset(
-        base=base,
+        datasets=pairs,
         retriever=retriever,
-        ds=ds,
         top_k=top_k,
         mode=mode,
     )
+
 
 
 def eval_dataset(
@@ -197,7 +202,7 @@ def eval_dataset(
 
 def run_gpt_infer(config: Config) -> str:
     run_dir = make_run_dir_gpt(config)
-    mode = config.gpt_infer_mode  # "plain" | "rem1" | "rem12"
+    mode = config.rem_mode  # "plain" | "rem1" | "rem12"
 
     gpt_client = GPTClient[GPTInferOut](
         model=config.gpt_model,

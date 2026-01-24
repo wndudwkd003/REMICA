@@ -30,7 +30,7 @@ REM_STEP_1_DATASET = [
     DatasetEnum.HSDCD,
 ]
 
-DATASET_BS = 4
+DATASET_BS = 1
 DATASET_ORDER = [
     (dataset, DATASET_BS) for dataset in REM_STEP_1_DATASET
 ]
@@ -49,21 +49,28 @@ class ModelEnum(Enum):
     Longformer = "allenai/longformer-base-4096"
     BigBird = "google/bigbird-roberta-base"
 
+    GEMMA2_2 = "google/gemma-2-2b-it"
+    LLAMA3_2 = "meta-llama/Llama-3.2-3B-Instruct"
+    PHI3_5 = "microsoft/Phi-3.5-mini-instruct"
+
 
 FAST_NOT_MODEL = [ModelEnum.DeBERTaV3.value]
 
 
 # Select the model to use for experiments!!!!!!!!!!!!!!!!
-SELECT_MODEL = ModelEnum.ModernBERT
+SELECT_MODEL = ModelEnum.GEMMA2_2
 
 
 @dataclass
 class Config:
+    use_llm_classifier: bool = True  # True | False
 
-    use_rem2_aug: bool = False  # True | False
+    llm_target_mode: str = "rem12"  # "rem12" | "simple" 출력 내용 설정
+
+    use_rem2_aug: bool = True  # True | False 유사사례 증강할지말지
     rem2_top_k: int = 3
-    rem2_min_reliability: float = 0.65
-    rem2_only_correct: bool = True
+
+
     rem2_faiss_index_path: str = "rem/faiss/rem2_text_train.index"
     rem2_faiss_meta_path: str = "rem/faiss/rem2_text_train.meta.jsonl"
 
@@ -73,15 +80,16 @@ class Config:
     context_datasets_dir: str = "datasets_context_processed"
 
     dataset_sum: bool = False  # True | False
-    dataset_sum_batch_size: int = 4
+    dataset_sum_batch_size: int = 1
     dataset_order: list[tuple[DatasetEnum, int]] = field(
         default_factory=lambda: DATASET_ORDER
     )
     # config.Config 안에
-    gpt_infer_mode: str = "rem12" # plain | rem1 | rem12
+
+    rem_mode: str = "rem12" # simple | rem1 | rem12 유사사례 어떻게
 
     do_mode: str | None = (
-        "GPT_INFER"  # REM_Stage_1 | REM_Stage_2 | ICA | GPT_INFER | check | None
+        None  # REM_Stage_1 | REM_Stage_2 | ICA | GPT_INFER | check | None
     )
     api_json_path: str = "config/api.json"
     rem_step1_datasets: list[DatasetEnum] = field(
@@ -111,9 +119,9 @@ class Config:
     train_mode: str = "train_test"  # "train" or "test"
     load_run_dir: str | None = None  # test에서 특정 run 폴더를 지정하고 싶으면 사용
 
-    seed: int = 42
+    seed: int = 42 # 42 2026 1234
 
-    max_len: int = 4096
+    max_len: int = 2048
     num_epochs: int = 200
     lr: float = 2e-5
     weight_decay: float = 0.01
@@ -130,3 +138,17 @@ class Config:
     emb_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     emb_batch_size: int = 128
     sim_index_dir: str = "rem/sim_index"
+
+
+    # --- LoRA 관련 ---
+    use_lora: bool = True
+    lora_r: int = 8
+    lora_alpha: int = 16
+    lora_dropout: float = 0.05
+    lora_bias: str = "all"
+    lora_target_modules: list[str] = field(
+        default_factory=lambda: [
+            "q_proj", "v_proj", "k_proj", "o_proj", "out_proj",
+            "gate_proj", "up_proj", "down_proj"
+        ]
+    )
