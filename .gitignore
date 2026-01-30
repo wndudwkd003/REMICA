@@ -1,0 +1,11 @@
+datasets
+datasets_processed
+debate_memory_backup
+faiss_index
+runs_backup
+__pycache__
+*.pyc
+api.md
+api.json
+debate_memory
+runs

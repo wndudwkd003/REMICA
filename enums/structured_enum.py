@@ -1,0 +1,40 @@
+# enums/structured_enum.py
+
+FACTOR_TOKENS = [
+    "HATE_SLUR",
+    "HATE_DEROGATORY",
+    "HARASSMENT_INSULT",
+    "SEXUAL_SOLICITATION",
+    "SEXUAL_EXPLICIT",
+    "VIOLENCE_THREAT",
+    "VIOLENCE_NARRATION",
+    "PROPERTY_DAMAGE",
+    "PROSOCIAL_BLESSING",
+    "NEUTRAL_DAILY",
+    "OTHER",
+]
+
+TARGET_TYPE_TOKENS = [
+    "NONE",
+    "INDIVIDUAL",
+    "GROUP",
+    "SELF",
+    "UNKNOWN",
+]
+
+TARGET_GROUP_TOKENS = [
+    "NONE",
+    "WOMEN",
+    "MEN",
+    "LGBTQ",
+    "RELIGION",
+    "POOR",
+    "ELITE",
+    "OTHER_GROUP",
+]
+
+STANCE_TOKENS = [
+    "ENDORSE",
+    "REJECT",
+    "NEUTRAL",
+]
