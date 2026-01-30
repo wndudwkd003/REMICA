@@ -19,7 +19,7 @@ from utils.faiss_utils import (
 )
 from utils.gpu_utils import make_plan
 from utils.metrics_utils import compute_binary_metrics, save_metrics_csv_and_plots
-from utils.path_utils import get_memory_root, get_test_root
+from utils.path_utils import get_memory_root, get_test_root, make_unique_dir
 from utils.prompt_builder_debate import build_prompt_test_infer
 from utils.time_utils import now_ms
 import utils.process_utils as pu
@@ -45,21 +45,6 @@ def init_worker_with_cache(gpu_id: int, config: Config) -> None:
     global G_MEMORY_BY_ID
     pu.init_worker(gpu_id, config)
     G_MEMORY_BY_ID = {}
-
-
-def make_unique_dir(base_dir: Path) -> Path:
-    base_dir = Path(base_dir)
-    if not base_dir.exists():
-        base_dir.mkdir(parents=True, exist_ok=False)
-        return base_dir
-
-    i = 1
-    while True:
-        cand = Path(str(base_dir) + f"_{i}")
-        if not cand.exists():
-            cand.mkdir(parents=True, exist_ok=False)
-            return cand
-        i += 1
 
 
 def ensure_memory_by_id(dataset: DatasetEnum, config: Config) -> dict:
@@ -207,9 +192,12 @@ def run_test_memory(config: Config) -> None:
                     continue
 
             futures = []
+            future_to_true = {}
             for row in iter_jsonl(test_path):
                 ex = next(rr)
-                futures.append(ex.submit(worker_run_one, dataset.name, row))
+                fut = ex.submit(worker_run_one, dataset.name, row)
+                futures.append(fut)
+                future_to_true[fut] = row["label"]
 
             if not futures:
                 tqdm_write(f"  - no test samples: {test_path}")
@@ -231,25 +219,40 @@ def run_test_memory(config: Config) -> None:
             times_ms = []
 
             for fut in as_completed(futures):
+                true_y = future_to_true[fut]
+
                 try:
                     ok, y, p, time_ms, err, pid = fut.result()
+                    true_y = y
+
                 except Exception:
+                    # ---- 실패 = 오답 처리 ----
                     fail_count += 1
+                    y_true.append(true_y)
+                    y_pred.append(1 - true_y)
+                    times_ms.append(0.0)
+
                     pbar.update(1)
                     pbar.set_postfix(ok=ok_count, fail=fail_count)
                     continue
 
                 if not ok:
+                    # ---- 실패 = 오답 처리 ----
                     fail_count += 1
+                    y_true.append(true_y)
+                    y_pred.append(1 - true_y)
+                    times_ms.append(float(time_ms) if time_ms else 0.0)
+
                     pbar.update(1)
                     pbar.set_postfix(ok=ok_count, fail=fail_count)
                     continue
 
-                y_true.append(int(y))
+                # ---- 성공 케이스 ----
+                ok_count += 1
+                y_true.append(true_y)
                 y_pred.append(int(p))
                 times_ms.append(float(time_ms))
 
-                ok_count += 1
                 pbar.update(1)
                 pbar.set_postfix(ok=ok_count, fail=fail_count)
 
@@ -257,6 +260,18 @@ def run_test_memory(config: Config) -> None:
 
             if y_true:
                 metrics = compute_binary_metrics(y_true, y_pred)
+
+                # ---- add: failure stats ----
+                metrics["n_ok"] = int(ok_count)
+                metrics["n_fail"] = int(fail_count)
+                metrics["n_total"] = int(ok_count + fail_count)
+                metrics["fail_rate"] = (
+                    float(fail_count / (ok_count + fail_count))
+                    if (ok_count + fail_count) > 0
+                    else 0.0
+                )
+                # ----------------------------
+
                 save_metrics_csv_and_plots(
                     config=config,
                     dataset=dataset,

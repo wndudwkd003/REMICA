@@ -15,6 +15,7 @@ from worker.test_memory import run_test_memory
 # )
 
 from worker.model_train import run_model_train, run_model_test
+from worker.online_mode import run_online_mode
 
 
 def main(config: Config):
@@ -23,6 +24,9 @@ def main(config: Config):
 
     elif config.do_mode == DoModeEnum.TEST_DEBATE_MEMORY:
         run_test_memory(config)
+
+    elif config.do_mode == DoModeEnum.ONLINE_TEST:
+        run_online_mode(config)
 
 
 if __name__ == "__main__":

@@ -44,6 +44,8 @@ class DoModeEnum(Enum):
     SAVE_DEBATE_MEMORY = "save_debate_memory"
     TEST_DEBATE_MEMORY = "test_debate_memory"
 
+    ONLINE_TEST = "online_test"
+
     MODEL_TRAIN = "model_train"
     MODEL_TEST = "model_test"
 
@@ -56,11 +58,11 @@ class ChainEnum(Enum):
 
 @dataclass
 class Config:
-    actual_label_intervention: bool = True
+    actual_label_intervention: bool = False
     chain_mode: ChainEnum = ChainEnum.CHAIN_OF_DEBATE
-    do_mode: DoModeEnum = DoModeEnum.SAVE_DEBATE_MEMORY
+    do_mode: DoModeEnum = DoModeEnum.ONLINE_TEST
     memory_dir: str = "debate_memory"
-    able_gpus: list[int] = field(default_factory=lambda: [0, 1, 2, 3])
+    able_gpus: list[int] = field(default_factory=lambda: [1, 2, 3])
     datasets_dir: str = "datasets_processed"
     dataset_order: list[tuple[DatasetEnum, int]] = field(
         default_factory=lambda: DATASET_ORDER
@@ -69,7 +71,7 @@ class Config:
 
     # GPT 관련
     multi_worker: int = 20
-    api_model: ModelEnum = ModelEnum.GPT5_MINI
+    api_model: ModelEnum = ModelEnum.CLAUDE_HAIKU4_5
     temperature: float = 0.0
     top_p: float = 1.0
     max_retries: int = 5

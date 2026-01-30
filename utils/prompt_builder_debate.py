@@ -198,7 +198,7 @@ def format_similar_examples(similar_examples, chain_mode: ChainEnum) -> str:
             order = ("A1", "A2", "B1", "B2")
 
         for step_name in order:
-            out_mem = get_out(ex, step_name)
+            out_mem = get_out(ex, step_name)  # extract output dict
             if out_mem is not None:
                 lines.append(f"{step_name} output:\n{pretty_json(out_mem)}")
 
@@ -266,7 +266,7 @@ def actual_label_block(actual_label):
 def build_prompt_agent_A(
     target_text,
     dataset,
-    similar_examples,
+    similar_examples: list,
     prev_A_out=None,
     prev_B_out=None,
     actual_label_intervention=False,
@@ -288,6 +288,9 @@ def build_prompt_agent_A(
         "Similar examples:\n" + str(examples_str),
         "Target text:\n" + str(target_text),
     ]
+
+    if examples_str.strip() == "":
+        input_items.pop(0)  # remove 'examples_str' if empty
 
     if prev_A_out is not None:
         input_items.append(
@@ -523,7 +526,7 @@ def build_prompt_chain_step(
     step_index: int,
     target_text,
     dataset,
-    similar_examples,
+    similar_examples: list,
     out_A1=None,
     out_B1=None,
     out_A2=None,

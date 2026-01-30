@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import torch
 
-from config.config import Config, DatasetEnum
+from config.config import Config, DatasetEnum, DoModeEnum
 from enums.out_schema import AgentAOut, AgentBOut, GPTInferOut
 from utils.faiss_utils import load_faiss_index_and_meta
 from utils.llm_builder import build_agent_client
@@ -21,8 +21,9 @@ def init_worker(gpu_id: int, config: Config) -> None:
     G_GPU_ID = int(gpu_id)
     G_CONFIG = config
 
-    torch.cuda.set_device(G_GPU_ID)
-    G_CONFIG.rag_device = f"cuda:{G_GPU_ID}"
+    if config.do_mode != DoModeEnum.ONLINE_TEST:
+        torch.cuda.set_device(G_GPU_ID)
+        G_CONFIG.rag_device = f"cuda:{G_GPU_ID}"
 
     G_CLIENTS = {
         "A": build_agent_client(G_CONFIG, AgentAOut, role_key="A"),
