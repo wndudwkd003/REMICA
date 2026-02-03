@@ -11,7 +11,10 @@ from pathlib import Path
 from tqdm.auto import tqdm
 
 from config.config import ChainEnum, Config, DatasetEnum
-from utils.faiss_utils import search_similar_by_text
+from utils.faiss_utils import (
+    search_similar_by_text,
+    pick_topk_with_both_labels_in_order,
+)
 from utils.gpu_utils import make_plan
 from utils.prompt_builder_debate import build_prompt_chain_step
 import utils.process_utils as pu
@@ -85,15 +88,24 @@ def worker_save_one(dataset_name: str, row: dict):
         text = row["text"]
         label = int(row["label"])
 
+        use_k = pu.G_CONFIG.rag_top_k
+        cand_k = use_k * pu.G_CONFIG.rag_cand_k
+
         similar_examples = search_similar_by_text(
             config=pu.G_CONFIG,
             dataset=dataset,
             index=index,
             meta_train=meta_train,
             query_text=text,
-            top_k=pu.G_CONFIG.rag_top_k,
+            top_k=cand_k,
             query_id=sample_id,
         )
+
+        if pu.G_CONFIG.is_sim_legacy == False:
+            similar_examples = pick_topk_with_both_labels_in_order(
+                candidates_full=similar_examples,
+                use_k=use_k,
+            )
 
         out_A1 = None
         out_B1 = None
