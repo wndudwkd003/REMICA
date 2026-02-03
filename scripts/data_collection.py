@@ -10,22 +10,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 from utils.filter_utils import is_only_url_or_symbol
-
-
-class DatasetEnum(Enum):
-    DiaSafety = "DiaSafety"
-    GabHate = "gab_hate"
-    HSOL = "hate-speech-and-offensive-language-master"
-    HateXplain = "hatexplain"
-    RealToxicityPrompts = "real-toxicity-prompts"
-    OffenseEval = "offenseval"
-    HSD = "hate-speech-dataset-master"
-    ToxiGen = "toxigen"
-    ToxiSpanSE = "ToxiSpanSE"
-    ToxiCR = "toxicr"
-    HSDCD = "hsdcd"
-    ISHate = "ISHate"
-
+from config.config import DatasetEnum
 
 SELECT_DATA = DatasetEnum.ToxiSpanSE
 DATASET_DIR = "datasets"
