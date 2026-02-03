@@ -1,3 +1,4 @@
+# (기존 유지)
 datasets
 datasets_processed
 debate_memory_backup
@@ -5,11 +6,19 @@ faiss_index
 runs_backup
 __pycache__
 *.pyc
+
 api.md
 api.json
-!debate_memory/CLAUDE_HAIKU4_5
-!debate_memory/GPT5_1
-!debate_memory/GPT5_MINI
 
-debate_memory
+# debate_memory는 기본적으로 전부 무시
+debate_memory/**
+
+# 하지만 debate_memory 폴더 자체는 예외 규칙이 먹도록 unignore
+!debate_memory/
+
+# 그리고 원하는 3개 폴더만 추적
+!debate_memory/CLAUDE_HAIKU4_5/**
+!debate_memory/GPT5_1/**
+!debate_memory/GPT5_MINI/**
+
 runs
