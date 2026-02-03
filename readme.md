@@ -62,5 +62,5 @@ Main config: `config/config.py`
 ## Run
 
 ```bash
-python run.py
+python -m run
 ```
