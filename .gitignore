@@ -1,4 +1,5 @@
-# (기존 유지)
+# 무시
+
 datasets
 datasets_processed
 debate_memory_backup
@@ -9,16 +10,11 @@ __pycache__
 
 api.md
 api.json
+runs/
 
-# debate_memory는 기본적으로 전부 무시
-debate_memory/**
+# 이번 논문에서 사용한 데이터 세트, 나머지는 다음 연구에서
+**/DiaSafety.jsonl
+**/HateXplain.jsonl
+**/HSOL.jsonl
+**/OffenseEval.jsonl
 
-# 하지만 debate_memory 폴더 자체는 예외 규칙이 먹도록 unignore
-!debate_memory/
-
-# 그리고 원하는 3개 폴더만 추적
-!debate_memory/CLAUDE_HAIKU4_5/**
-!debate_memory/GPT5_1/**
-!debate_memory/GPT5_MINI/**
-
-runs
