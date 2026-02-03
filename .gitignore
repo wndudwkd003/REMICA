@@ -1,5 +1,3 @@
-# 무시
-
 datasets
 datasets_processed
 debate_memory_backup
@@ -7,14 +5,9 @@ faiss_index
 runs_backup
 __pycache__
 *.pyc
-
 api.md
 api.json
-runs/
-
-# 이번 논문에서 사용한 데이터 세트, 나머지는 다음 연구에서
-**/DiaSafety.jsonl
-**/HateXplain.jsonl
-**/HSOL.jsonl
-**/OffenseEval.jsonl
-
+debate_memory/*
+debate_memory
+debate_memory/
+runs
