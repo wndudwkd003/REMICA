@@ -18,6 +18,11 @@ Large artifacts are excluded:
 Large artifacts (e.g., debate memory) are uploaded to Google Drive:
 https://drive.google.com/drive/folders/1TbNgqTwjc0RzKNBQbxi-JVDHZbTUsZsW?usp=sharing
 
+> **Privacy note**
+> - The original text field (`text`) has been removed from the Drive artifacts for release.
+> - Each sample is referenced only by an identifier in the format `<DATASET>_<split>_<idx>` (e.g., `ToxiSpanSE_train_41124`).
+
+
 ## Data Processing & Indexing
 - Preprocessing: `scripts/data_collection.py`
 - FAISS index build: `scripts/build_faiss_indices.py`
