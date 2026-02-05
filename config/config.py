@@ -20,13 +20,13 @@ class DatasetEnum(Enum):
 
 
 TARGET_DATASETS = [
-    DatasetEnum.HSOL,
+    # DatasetEnum.HSOL,
     DatasetEnum.RealToxicityPrompts,
     DatasetEnum.ToxiSpanSE,
     DatasetEnum.HSDCD,
-    DatasetEnum.OffenseEval,
+    # DatasetEnum.OffenseEval,
     DatasetEnum.DiaSafety,
-    DatasetEnum.HateXplain,
+    # DatasetEnum.HateXplain,
 ]
 
 
@@ -60,10 +60,10 @@ class ChainEnum(Enum):
 class Config:
     is_sim_legacy: bool = True
     actual_label_intervention: bool = False
-    chain_mode: ChainEnum = ChainEnum.CHAIN_OF_EXPERT
-    do_mode: DoModeEnum = DoModeEnum.SAVE_DEBATE_MEMORY
+    chain_mode: ChainEnum = ChainEnum.CHAIN_OF_DEBATE
+    do_mode: DoModeEnum = DoModeEnum.TEST_DEBATE_MEMORY
     memory_dir: str = "debate_memory"
-    able_gpus: list[int] = field(default_factory=lambda: [1, 2, 3])
+    able_gpus: list[int] = field(default_factory=lambda: [0])
     datasets_dir: str = "datasets_processed"
     dataset_order: list[tuple[DatasetEnum, int]] = field(
         default_factory=lambda: DATASET_ORDER
@@ -72,7 +72,7 @@ class Config:
 
     # GPT 관련
     multi_worker: int = 20
-    api_model: ModelEnum = ModelEnum.CLAUDE_SONNET4_5
+    api_model: ModelEnum = ModelEnum.GPT5_MINI
     temperature: float = 0.0
     top_p: float = 1.0
     max_retries: int = 5
@@ -98,7 +98,7 @@ class Config:
     meta_to_text: bool = False
     early_stopping_patience: int = 5
     early_stopping_delta: float = 0.001
-    rag_top_k: int = 3
+    rag_top_k: int = 1
     rag_cand_k: int = 30
     rag_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     rag_batch_size: int = 128

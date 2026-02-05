@@ -5,9 +5,9 @@ import json
 # =========================
 # 전역 설정
 # =========================
-EVAL_DIR = Path("runs/test_memory/GPT5_1/chain_of_debate/ali_on/eval")
-MODEL_NAME = "GPT5_1"
-ROW_NAME = "REMICA (CoD)"  # "Online (CoE)" "Online (CoD)" "Few-shot" "REM (CoE)" "REMICA (CoE)" "REM (CoD)" "REMICA (CoD)"
+EVAL_DIR = Path("runs/test_memory/GPT5_MINI/chain_of_debate/ali_off/eval")
+MODEL_NAME = "GPT5_MINI"
+ROW_NAME = "REM (CoD)"  # "Online (CoE)" "Online (CoD)" "Few-shot" "REM (CoE)" "REMICA (CoE)" "REM (CoD)" "REMICA (CoD)"
 
 OUT_TEX = EVAL_DIR / f"metrics_row_{ROW_NAME.replace(' ', '_')}.tex"
 

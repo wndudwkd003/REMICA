@@ -116,6 +116,11 @@ def pick_topk_with_both_labels_in_order(
 ):
 
     topk = candidates_full[:use_k]
+
+    if use_k == 1:
+        return topk
+
+
     labels = {int(x["label"]) for x in topk}
 
     # 이미 0/1 섞여 있으면 그대로
@@ -140,10 +145,5 @@ def pick_topk_with_both_labels_in_order(
     # 유사도 순 유지: topk에서 마지막 1개 제거 + 반대라벨의 가장 이른 후보 1개 추가
     # 결과 순서는 topk[:-1] (원래 앞쪽) 다음에 (더 뒤에 있는 other 후보)로 유지됨
     out = topk[:-1] + [candidates_full[first_other_idx]]
-
-    # sanity check
-    out_labels = {int(x["label"]) for x in out}
-    if len(out_labels) < 2:
-        raise RuntimeError("internal error: diversity not achieved")
 
     return out
