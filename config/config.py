@@ -59,9 +59,10 @@ class ChainEnum(Enum):
 @dataclass
 class Config:
     is_sim_legacy: bool = True
+    is_online_legacy: bool = False
     actual_label_intervention: bool = False
     chain_mode: ChainEnum = ChainEnum.CHAIN_OF_DEBATE
-    do_mode: DoModeEnum = DoModeEnum.TEST_DEBATE_MEMORY
+    do_mode: DoModeEnum = DoModeEnum.ONLINE_TEST
     memory_dir: str = "debate_memory"
     able_gpus: list[int] = field(default_factory=lambda: [0])
     datasets_dir: str = "datasets_processed"
@@ -72,7 +73,7 @@ class Config:
 
     # GPT 관련
     multi_worker: int = 20
-    api_model: ModelEnum = ModelEnum.GPT5_MINI
+    api_model: ModelEnum = ModelEnum.CLAUDE_HAIKU4_5
     temperature: float = 0.0
     top_p: float = 1.0
     max_retries: int = 5
@@ -98,9 +99,17 @@ class Config:
     meta_to_text: bool = False
     early_stopping_patience: int = 5
     early_stopping_delta: float = 0.001
-    rag_top_k: int = 1
+    rag_top_k: int = 3
     rag_cand_k: int = 30
     rag_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     rag_batch_size: int = 128
     rag_device: str = "cuda"
     faiss_dir: str = "faiss_index"
+
+
+
+
+    tsne_perplexity: int = 30
+    tsne_n_iter: int = 1500
+    runs_analysis_dir: str = "runs_analysis"
+    pca_dim_before_tsne: int = 50

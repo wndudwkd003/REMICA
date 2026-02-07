@@ -17,7 +17,10 @@ from utils.time_utils import now_ms
 from utils.path_utils import get_online_root, make_unique_dir
 from enums.out_schema import GPTInferOut
 from utils.prompt_builder_debate import build_prompt_chain_step, build_prompt_test_infer
-
+from utils.faiss_utils import (
+    pick_topk_with_both_labels_in_order,
+    search_similar_by_text,
+)
 from utils.metrics_utils import compute_binary_metrics, save_metrics_csv_and_plots
 
 MP_CTX = mp.get_context("spawn")
@@ -48,11 +51,44 @@ def worker_online_one(dataset_name: str, row: dict):
 
     try:
         dataset = DatasetEnum[dataset_name]
+        index, meta_train = pu.get_index_meta(dataset)
+        infer_client = pu.ensure_infer_client()
+
 
         text = row["text"]
         label = int(row["label"])
 
-        similar_examples: list[dict] = []
+        use_k = int(pu.G_CONFIG.rag_top_k)
+
+        candidates_full: list[dict] = []
+
+
+        if use_k <= 0:
+            memories = []
+        else:
+            cand_k = use_k * int(pu.G_CONFIG.rag_cand_k)
+
+            candidates = search_similar_by_text(
+                config=pu.G_CONFIG,
+                dataset=dataset,
+                index=index,
+                meta_train=meta_train,
+                query_text=text,
+                top_k=cand_k,
+                query_id=sample_id,
+            )
+
+            for ex in candidates:
+                candidates_full.append(
+                    {
+                        "id": str(ex["id"]),
+                        "text": ex["text"],
+                        "label": int(ex["label"]),
+                    }
+                )
+
+            memories = pick_topk_with_both_labels_in_order(candidates_full, use_k)
+
 
         out_A1 = None
         out_B1 = None
@@ -75,7 +111,7 @@ def worker_online_one(dataset_name: str, row: dict):
                 step_index=step_index,
                 target_text=text,
                 dataset=dataset,
-                similar_examples=similar_examples,
+                similar_examples=memories,
                 out_A1=out_A1,
                 out_B1=out_B1,
                 out_A2=out_A2,
