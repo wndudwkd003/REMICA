@@ -21,9 +21,9 @@ class DatasetEnum(Enum):
 
 TARGET_DATASETS = [
     # DatasetEnum.HSOL,
-    DatasetEnum.RealToxicityPrompts,
-    DatasetEnum.ToxiSpanSE,
-    DatasetEnum.HSDCD,
+    # DatasetEnum.RealToxicityPrompts,
+    # DatasetEnum.ToxiSpanSE,
+    # DatasetEnum.HSDCD,
     # DatasetEnum.OffenseEval,
     DatasetEnum.DiaSafety,
     # DatasetEnum.HateXplain,
@@ -59,9 +59,9 @@ class ChainEnum(Enum):
 @dataclass
 class Config:
     is_sim_legacy: bool = True
-    actual_label_intervention: bool = False
+    actual_label_intervention: bool = True
     chain_mode: ChainEnum = ChainEnum.CHAIN_OF_DEBATE
-    do_mode: DoModeEnum = DoModeEnum.ONLINE_TEST
+    do_mode: DoModeEnum = DoModeEnum.TEST_DEBATE_MEMORY
     memory_dir: str = "debate_memory"
     able_gpus: list[int] = field(default_factory=lambda: [0,1,2,3])
     datasets_dir: str = "datasets_processed"

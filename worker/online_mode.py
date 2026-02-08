@@ -56,7 +56,7 @@ def worker_online_one(dataset_name: str, row: dict):
 
 
         text = row["text"]
-        label = int(row["label"])
+        label = row["label"]
 
         use_k = int(pu.G_CONFIG.rag_top_k)
 
@@ -81,9 +81,9 @@ def worker_online_one(dataset_name: str, row: dict):
             for ex in candidates:
                 candidates_full.append(
                     {
-                        "id": str(ex["id"]),
+                        "id": ex["id"],
                         "text": ex["text"],
-                        "label": int(ex["label"]),
+                        "label": ex["label"],
                     }
                 )
 
@@ -147,7 +147,7 @@ def worker_online_one(dataset_name: str, row: dict):
         memories = [
             {
                 "text": text,
-                "label": label,
+                "label": "No correct answer is provided.", # 온라인 평가에서는 정답 힌트 금지
                 "A1": {
                     "prompt": trace["A1"]["prompt"],
                     "output": trace["A1"]["output"],

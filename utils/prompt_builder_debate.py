@@ -164,12 +164,15 @@ def assemble_prompt(
 
 
 def format_example_label(label_value):
-    v = int(label_value)
-    if v == 0:
-        return "0 (appropriate)"
-    if v == 1:
-        return "1 (inappropriate)"
-    return str(v)
+    try:
+        v = int(label_value)
+        if v == 0:
+            return "0 (appropriate)"
+        if v == 1:
+            return "1 (inappropriate)"
+        return str(v)
+    except:
+        return label_value
 
 
 def get_out(ex, key):

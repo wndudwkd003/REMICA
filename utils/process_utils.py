@@ -21,9 +21,9 @@ def init_worker(gpu_id: int, config: Config) -> None:
     G_GPU_ID = int(gpu_id)
     G_CONFIG = config
 
-    if config.do_mode != DoModeEnum.ONLINE_TEST:
-        torch.cuda.set_device(G_GPU_ID)
-        G_CONFIG.rag_device = f"cuda:{G_GPU_ID}"
+    # if config.do_mode != DoModeEnum.ONLINE_TEST:
+    torch.cuda.set_device(G_GPU_ID)
+    G_CONFIG.rag_device = f"cuda:{G_GPU_ID}"
 
     G_CLIENTS = {
         "A": build_agent_client(G_CONFIG, AgentAOut, role_key="A"),
