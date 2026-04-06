@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from pathlib import Path
 import csv
 import json
-from math import sqrt
 
 
 # =========================
@@ -54,10 +53,6 @@ MODEL_ORDER = ["GPT5_1", "GPT5_MINI", "CLAUDE_HAIKU4_5"]
 # 렌더링 컬럼 개수 (Row label 1 + 4 datasets * 3 + Average * 3 = 16)
 TABLE_COLS = 16
 
-# Average 컬럼의 ± 계산 기준: run 간 표준편차
-# (row별로 "각 run에서의 dataset 평균"을 만든 뒤, 그 값들의 std를 계산)
-AVG_STD_MIN_N = 2
-
 
 # =========================
 # 데이터 구조
@@ -68,20 +63,6 @@ class MetricTriple:
     acc: float | None
     f1: float | None
     time_sec: float | None
-
-
-@dataclass
-class MetricSummaryStats:
-    mean: float | None
-    std: float | None
-    n: int
-
-
-@dataclass
-class AvgTripleStats:
-    acc: MetricSummaryStats
-    f1: MetricSummaryStats
-    time_sec: MetricSummaryStats
 
 
 # =========================
@@ -129,15 +110,6 @@ def mean(values: list[float]) -> float | None:
     return sum(values) / len(values)
 
 
-def stdev(values: list[float]) -> float | None:
-    n = len(values)
-    if n < AVG_STD_MIN_N:
-        return None
-    m = sum(values) / n
-    var = sum((x - m) * (x - m) for x in values) / (n - 1)
-    return sqrt(var)
-
-
 def format_percent(v: float | None, digits: int = 3) -> str:
     if v is None:
         return "--"
@@ -148,34 +120,6 @@ def format_time(v_sec: float | None, digits: int = 2) -> str:
     if v_sec is None:
         return "--"
     return f"{v_sec:.{digits}f}s"
-
-
-def to_percent_2(v: float | None) -> float | None:
-    if v is None:
-        return None
-    return round(v * 100.0, 2)
-
-
-def format_percent_pm(
-    m: float | None,
-    s: float | None,
-    mean_digits: int = 3,
-    std_digits: int = 2,
-) -> str:
-    if m is None:
-        return "--"
-    if s is None:
-        return f"{m * 100:.{mean_digits}f}"
-    return f"{m * 100:.{mean_digits}f}$\\pm${s * 100:.{std_digits}f}"
-
-
-
-def format_time_pm(m_sec: float | None, s_sec: float | None, digits: int = 2) -> str:
-    if m_sec is None:
-        return "--"
-    if s_sec is None:
-        return f"{m_sec:.{digits}f}s"
-    return f"{m_sec:.{digits}f}$\\pm${s_sec:.{digits}f}s"
 
 
 def wrap_best(s: str) -> str:
@@ -209,12 +153,6 @@ def build_out_dir_name(run_roots: list[Path]) -> str:
 # eval 후보 탐지 + 선택
 # =========================
 
-def eval_candidate_sort_key(p: Path):
-    if p.name == "eval":
-        return (0, 0)
-    return (1, int(p.name[4:]))
-
-
 def list_eval_candidates(eval_parent: Path) -> list[Path]:
     """
     eval_parent 아래에서 eval, eval1, eval2 ... 형태의 디렉토리를 후보로 수집.
@@ -234,7 +172,12 @@ def list_eval_candidates(eval_parent: Path) -> list[Path]:
             if suffix.isdigit():
                 candidates.append(p)
 
-    candidates.sort(key=eval_candidate_sort_key)
+    def sort_key(x: Path):
+        if x.name == "eval":
+            return (0, 0)
+        return (1, int(x.name[4:]))
+
+    candidates.sort(key=sort_key)
     return candidates
 
 
@@ -338,6 +281,50 @@ def collect_one_eval(eval_dir: Path, model_name: str) -> dict[str, MetricTriple]
     return out
 
 
+def aggregate_across_runs(
+    run_roots: list[Path],
+    selection_map: dict[str, str],
+    mode: str,
+    model_name: str,
+    chain: str,
+    ali_mode: str | None,
+) -> dict[str, MetricTriple]:
+    per_dataset_acc: dict[str, list[float]] = {}
+    per_dataset_f1: dict[str, list[float]] = {}
+    per_dataset_time: dict[str, list[float]] = {}
+
+    for ds_key, _ in DATASETS:
+        per_dataset_acc[ds_key] = []
+        per_dataset_f1[ds_key] = []
+        per_dataset_time[ds_key] = []
+
+    for run_root in run_roots:
+        eval_dir = choose_one_eval_dir(selection_map, run_root, mode, model_name, chain, ali_mode)
+        if eval_dir is None:
+            continue
+
+        metrics_map = collect_one_eval(eval_dir, model_name)
+
+        for ds_key in metrics_map:
+            triple = metrics_map[ds_key]
+            if triple.acc is not None:
+                per_dataset_acc[ds_key].append(triple.acc)
+            if triple.f1 is not None:
+                per_dataset_f1[ds_key].append(triple.f1)
+            if triple.time_sec is not None:
+                per_dataset_time[ds_key].append(triple.time_sec)
+
+    out: dict[str, MetricTriple] = {}
+    for ds_key in per_dataset_acc:
+        out[ds_key] = MetricTriple(
+            acc=mean(per_dataset_acc[ds_key]),
+            f1=mean(per_dataset_f1[ds_key]),
+            time_sec=mean(per_dataset_time[ds_key]),
+        )
+
+    return out
+
+
 def compute_average_over_datasets(ds_map: dict[str, MetricTriple]) -> MetricTriple:
     acc_list: list[float] = []
     f1_list: list[float] = []
@@ -357,74 +344,6 @@ def compute_average_over_datasets(ds_map: dict[str, MetricTriple]) -> MetricTrip
         f1=mean(f1_list),
         time_sec=mean(time_list),
     )
-
-
-def build_stats(values: list[float]) -> MetricSummaryStats:
-    m = mean(values)
-    s = stdev(values)
-    return MetricSummaryStats(mean=m, std=s, n=len(values))
-
-
-def aggregate_across_runs(
-    run_roots: list[Path],
-    selection_map: dict[str, str],
-    mode: str,
-    model_name: str,
-    chain: str,
-    ali_mode: str | None,
-) -> tuple[dict[str, MetricTriple], AvgTripleStats]:
-    per_dataset_acc: dict[str, list[float]] = {}
-    per_dataset_f1: dict[str, list[float]] = {}
-    per_dataset_time: dict[str, list[float]] = {}
-
-    for ds_key, _ in DATASETS:
-        per_dataset_acc[ds_key] = []
-        per_dataset_f1[ds_key] = []
-        per_dataset_time[ds_key] = []
-
-    avg_acc_vals: list[float] = []
-    avg_f1_vals: list[float] = []
-    avg_time_vals: list[float] = []
-
-    for run_root in run_roots:
-        eval_dir = choose_one_eval_dir(selection_map, run_root, mode, model_name, chain, ali_mode)
-        if eval_dir is None:
-            continue
-
-        metrics_map = collect_one_eval(eval_dir, model_name)
-
-        for ds_key in metrics_map:
-            triple = metrics_map[ds_key]
-            if triple.acc is not None:
-                per_dataset_acc[ds_key].append(triple.acc)
-            if triple.f1 is not None:
-                per_dataset_f1[ds_key].append(triple.f1)
-            if triple.time_sec is not None:
-                per_dataset_time[ds_key].append(triple.time_sec)
-
-        run_avg = compute_average_over_datasets(metrics_map)
-        if run_avg.acc is not None:
-            avg_acc_vals.append(run_avg.acc)
-        if run_avg.f1 is not None:
-            avg_f1_vals.append(run_avg.f1)
-        if run_avg.time_sec is not None:
-            avg_time_vals.append(run_avg.time_sec)
-
-    out: dict[str, MetricTriple] = {}
-    for ds_key in per_dataset_acc:
-        out[ds_key] = MetricTriple(
-            acc=mean(per_dataset_acc[ds_key]),
-            f1=mean(per_dataset_f1[ds_key]),
-            time_sec=mean(per_dataset_time[ds_key]),
-        )
-
-    avg_stats = AvgTripleStats(
-        acc=build_stats(avg_acc_vals),
-        f1=build_stats(avg_f1_vals),
-        time_sec=build_stats(avg_time_vals),
-    )
-
-    return out, avg_stats
 
 
 # =========================
@@ -466,16 +385,10 @@ def rank_best_second(values_by_row: dict[str, float], higher_better: bool) -> tu
     return best_rows, second_rows
 
 
-def build_highlight_maps_for_model(
-    row_results: dict[str, dict[str, MetricTriple]],
-    row_avg_stats: dict[str, AvgTripleStats],
-):
+def build_highlight_maps_for_model(row_results: dict[str, dict[str, MetricTriple]]):
     """
     row_results:
-      row_name -> ds_key -> MetricTriple (per dataset mean)
-
-    row_avg_stats:
-      row_name -> AvgTripleStats (Average 컬럼 mean/std)
+      row_name -> ds_key -> MetricTriple
 
     반환:
       highlights[(row_name, ds_key, metric)] = "best" | "second" | None
@@ -516,19 +429,19 @@ def build_highlight_maps_for_model(
         for r in second:
             highlights[(r, ds_key, "time")] = "second"
 
-    # average column (mean 기준)
+    # average column
     avg_acc_vals: dict[str, float] = {}
     avg_f1_vals: dict[str, float] = {}
     avg_time_vals: dict[str, float] = {}
 
-    for row_name in row_avg_stats:
-        st = row_avg_stats[row_name]
-        if st.acc.mean is not None:
-            avg_acc_vals[row_name] = st.acc.mean
-        if st.f1.mean is not None:
-            avg_f1_vals[row_name] = st.f1.mean
-        if st.time_sec.mean is not None:
-            avg_time_vals[row_name] = st.time_sec.mean
+    for row_name in row_results:
+        avg_triple = compute_average_over_datasets(row_results[row_name])
+        if avg_triple.acc is not None:
+            avg_acc_vals[row_name] = avg_triple.acc
+        if avg_triple.f1 is not None:
+            avg_f1_vals[row_name] = avg_triple.f1
+        if avg_triple.time_sec is not None:
+            avg_time_vals[row_name] = avg_triple.time_sec
 
     best, second = rank_best_second(avg_acc_vals, higher_better=True)
     for r in best:
@@ -576,12 +489,7 @@ def apply_highlight(row_name: str, ds_key: str, metric: str, s: str, highlights:
     return s
 
 
-def render_row(
-    row_name: str,
-    ds_map: dict[str, MetricTriple],
-    avg_stats: AvgTripleStats,
-    highlights: dict[tuple[str, str, str], str],
-) -> str:
+def render_row(row_name: str, ds_map: dict[str, MetricTriple], highlights: dict[tuple[str, str, str], str]) -> str:
     parts: list[str] = []
     parts.append(f"\\hspace{{0.5em}}{row_name}")
 
@@ -598,9 +506,11 @@ def render_row(
 
         parts.append(f"   & {acc_s} & {f1_s} & {time_s}")
 
-    avg_acc_s = format_percent_pm(avg_stats.acc.mean, avg_stats.acc.std)
-    avg_f1_s = format_percent_pm(avg_stats.f1.mean, avg_stats.f1.std)
-    avg_time_s = format_time_pm(avg_stats.time_sec.mean, avg_stats.time_sec.std)
+    avg_triple = compute_average_over_datasets(ds_map)
+
+    avg_acc_s = format_percent(avg_triple.acc)
+    avg_f1_s = format_percent(avg_triple.f1)
+    avg_time_s = format_time(avg_triple.time_sec)
 
     avg_acc_s = apply_highlight(row_name, "__avg__", "acc", avg_acc_s, highlights)
     avg_f1_s = apply_highlight(row_name, "__avg__", "f1", avg_f1_s, highlights)
@@ -619,17 +529,20 @@ def render_row(
 def pick_best_second_avg(row_avg_values: dict[str, float], higher_better: bool):
     best_rows, second_rows = rank_best_second(row_avg_values, higher_better=higher_better)
 
+    def get_value(row_name: str):
+        return row_avg_values[row_name]
+
+    best_list = sorted(list(best_rows), key=get_value, reverse=higher_better)
+    second_list = sorted(list(second_rows), key=get_value, reverse=higher_better)
+
     best_item = None
     second_item = None
 
-    if len(best_rows) > 0:
-        best_sorted = sorted(list(best_rows), key=lambda r: row_avg_values[r], reverse=higher_better)
-        r = best_sorted[0]
+    if len(best_list) > 0:
+        r = best_list[0]
         best_item = {"row": r, "score": row_avg_values[r]}
-
-    if len(second_rows) > 0:
-        second_sorted = sorted(list(second_rows), key=lambda r: row_avg_values[r], reverse=higher_better)
-        r = second_sorted[0]
+    if len(second_list) > 0:
+        r = second_list[0]
         second_item = {"row": r, "score": row_avg_values[r]}
 
     return best_item, second_item
@@ -647,13 +560,10 @@ def to_sec_2(v: float | None) -> float | None:
     return round(v, 2)
 
 
-def build_summary_for_model(
-    row_results: dict[str, dict[str, MetricTriple]],
-    row_avg_stats: dict[str, AvgTripleStats],
-):
+def build_summary_for_model(row_results: dict[str, dict[str, MetricTriple]]):
     per_dataset_summary: dict[str, dict[str, dict[str, object]]] = {}
 
-    # per dataset best/second for each metric (mean 기준)
+    # per dataset best/second for each metric
     for ds_key, _ in DATASETS:
         acc_vals: dict[str, float] = {}
         f1_vals: dict[str, float] = {}
@@ -695,58 +605,40 @@ def build_summary_for_model(
             "time_sec": time_block,
         }
 
-    # average over datasets per row (mean 기준, std는 부가 정보로 추가)
+    # average over datasets per row
     avg_acc_vals: dict[str, float] = {}
     avg_f1_vals: dict[str, float] = {}
     avg_time_vals: dict[str, float] = {}
 
-    for row_name in row_avg_stats:
-        st = row_avg_stats[row_name]
-        if st.acc.mean is not None:
-            avg_acc_vals[row_name] = st.acc.mean
-        if st.f1.mean is not None:
-            avg_f1_vals[row_name] = st.f1.mean
-        if st.time_sec.mean is not None:
-            avg_time_vals[row_name] = st.time_sec.mean
+    for row_name in row_results:
+        avg_triple = compute_average_over_datasets(row_results[row_name])
+        if avg_triple.acc is not None:
+            avg_acc_vals[row_name] = avg_triple.acc
+        if avg_triple.f1 is not None:
+            avg_f1_vals[row_name] = avg_triple.f1
+        if avg_triple.time_sec is not None:
+            avg_time_vals[row_name] = avg_triple.time_sec
 
     best, second = pick_best_second_avg(avg_acc_vals, higher_better=True)
     avg_accuracy = {"best": best, "second": second}
     if avg_accuracy["best"] is not None:
-        row = avg_accuracy["best"]["row"]
-        avg_accuracy["best"]["score"] = to_percent_2(avg_accuracy["best"]["score"])
-        avg_accuracy["best"]["std"] = to_percent_2(row_avg_stats[row].acc.std)
-        avg_accuracy["best"]["n"] = row_avg_stats[row].acc.n
+        avg_accuracy["best"]["score"] = to_percent_3(avg_accuracy["best"]["score"])
     if avg_accuracy["second"] is not None:
-        row = avg_accuracy["second"]["row"]
-        avg_accuracy["second"]["score"] = to_percent_2(avg_accuracy["second"]["score"])
-        avg_accuracy["second"]["std"] = to_percent_2(row_avg_stats[row].acc.std)
-        avg_accuracy["second"]["n"] = row_avg_stats[row].acc.n
+        avg_accuracy["second"]["score"] = to_percent_3(avg_accuracy["second"]["score"])
 
     best, second = pick_best_second_avg(avg_f1_vals, higher_better=True)
     avg_f1 = {"best": best, "second": second}
     if avg_f1["best"] is not None:
-        row = avg_f1["best"]["row"]
-        avg_f1["best"]["score"] = to_percent_2(avg_f1["best"]["score"])
-        avg_f1["best"]["std"] = to_percent_2(row_avg_stats[row].f1.std)
-        avg_f1["best"]["n"] = row_avg_stats[row].f1.n
+        avg_f1["best"]["score"] = to_percent_3(avg_f1["best"]["score"])
     if avg_f1["second"] is not None:
-        row = avg_f1["second"]["row"]
-        avg_f1["second"]["score"] = to_percent_2(avg_f1["second"]["score"])
-        avg_f1["second"]["std"] = to_percent_2(row_avg_stats[row].f1.std)
-        avg_f1["second"]["n"] = row_avg_stats[row].f1.n
+        avg_f1["second"]["score"] = to_percent_3(avg_f1["second"]["score"])
 
     best, second = pick_best_second_avg(avg_time_vals, higher_better=False)
     avg_time = {"best": best, "second": second}
     if avg_time["best"] is not None:
-        row = avg_time["best"]["row"]
         avg_time["best"]["score"] = to_sec_2(avg_time["best"]["score"])
-        avg_time["best"]["std"] = to_sec_2(row_avg_stats[row].time_sec.std)
-        avg_time["best"]["n"] = row_avg_stats[row].time_sec.n
     if avg_time["second"] is not None:
-        row = avg_time["second"]["row"]
         avg_time["second"]["score"] = to_sec_2(avg_time["second"]["score"])
-        avg_time["second"]["std"] = to_sec_2(row_avg_stats[row].time_sec.std)
-        avg_time["second"]["n"] = row_avg_stats[row].time_sec.n
 
     return {
         "avg_accuracy": avg_accuracy,
@@ -767,12 +659,10 @@ def build_table_body_and_summary(run_roots: list[Path], selection_map: dict[str,
     for model_name in MODEL_ORDER:
         display_name = MODEL_DISPLAY[model_name] if model_name in MODEL_DISPLAY else model_name
 
-        # 1) row 결과를 전부 모아둠
+        # 1) 먼저 row 결과를 전부 모아둠
         row_results: dict[str, dict[str, MetricTriple]] = {}
-        row_avg_stats: dict[str, AvgTripleStats] = {}
-
         for row_name, mode, chain, ali_mode in ROW_SPECS:
-            ds_map, avg_stats = aggregate_across_runs(
+            ds_map = aggregate_across_runs(
                 run_roots=run_roots,
                 selection_map=selection_map,
                 mode=mode,
@@ -781,20 +671,19 @@ def build_table_body_and_summary(run_roots: list[Path], selection_map: dict[str,
                 ali_mode=ali_mode,
             )
             row_results[row_name] = ds_map
-            row_avg_stats[row_name] = avg_stats
 
-        # 2) 하이라이트 맵 생성 (Average는 mean 기준)
-        highlights = build_highlight_maps_for_model(row_results, row_avg_stats)
+        # 2) 하이라이트 맵 생성
+        highlights = build_highlight_maps_for_model(row_results)
 
         # 3) 렌더
         lines.append(render_group_header(display_name))
         for row_name, _, _, _ in ROW_SPECS:
-            lines.append(render_row(row_name, row_results[row_name], row_avg_stats[row_name], highlights))
+            lines.append(render_row(row_name, row_results[row_name], highlights))
 
         # 4) summary 생성
         summary_models[model_name] = {
             "display_name": display_name,
-            "summary": build_summary_for_model(row_results, row_avg_stats),
+            "summary": build_summary_for_model(row_results),
         }
 
     body = "\n".join(lines).rstrip() + "\n"
